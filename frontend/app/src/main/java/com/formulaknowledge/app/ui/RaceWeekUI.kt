@@ -1,6 +1,5 @@
 package com.formulaknowledge.app.ui
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -17,11 +16,6 @@ import androidx.compose.ui.unit.sp
 val AppDarkBackground = Color(0xFF1C1C1E)
 val AppDarkSurface = Color(0xFF2C2C2E)
 val TextPrimary = Color(0xFFE0E0E0)
-
-// Sfondo a gradiente per un look più moderno e profondo
-val AppBackgroundGradient = Brush.verticalGradient(
-    colors = listOf(Color(0xFF1A1A1D), Color(0xFF000000))
-)
 
 // 2. Colori Dinamici delle Scuderie
 enum class FavoriteTeam(val accentColor: Color) {
@@ -138,47 +132,6 @@ fun GlassDashboardCard(
                 fontSize = 22.sp, // Testo più grande
                 fontWeight = FontWeight.ExtraBold,
                 lineHeight = 22.sp
-            )
-        }
-    }
-}
-
-// 4. UI Component: Card stile NEON/GLASS per gli Aggiornamenti
-@Composable
-fun TeamUpdateCard(teamName: String, teamColorHex: String, onClick: () -> Unit) {
-    val teamColor = try {
-        Color(android.graphics.Color.parseColor(teamColorHex))
-    } catch (e: Exception) {
-        Color.Gray // Fallback in caso di errore
-    }
-
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
-            .clickable { onClick() },
-        shape = RoundedCornerShape(24.dp), // Angoli molto arrotondati
-        colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.03f)), // Vetro super trasparente
-        border = androidx.compose.foundation.BorderStroke(0.5.dp, teamColor.copy(alpha = 0.4f)) // Bordo sottile Neon
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(24.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
-        ) {
-            Text(
-                text = teamName,
-                color = Color.White,
-                fontWeight = FontWeight.ExtraBold,
-                fontSize = 22.sp
-            )
-            Text(
-                text = "Scopri →",
-                color = teamColor, // Freccia Neon
-                fontWeight = FontWeight.Bold,
-                fontSize = 16.sp
             )
         }
     }

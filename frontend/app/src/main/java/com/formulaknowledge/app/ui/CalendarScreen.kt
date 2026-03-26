@@ -18,41 +18,42 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.formulaknowledge.app.data.RetrofitClient
+import com.formulaknowledge.app.data.CalendarResponse
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
-
-// In Kotlin usiamo classi per i dati dell'API
-data class CalendarResponse(
-    val name: String,
-    val country: String,
-    val city: String,
-    val date: String,
-    val round: Int,
-    val status: String,
-    val is_clickable: Boolean
-)
 
 @Composable
 fun CalendarScreen(
     onNavigateToHome: () -> Unit,
     onNavigateToResults: (Int, String) -> Unit
 ) {
-    var calendarItems by remember { mutableStateOf<List<CalendarResponse>>(emptyList()) }
-    var isLoading by remember { mutableStateOf(true) }
+    val mockCalendar = listOf(
+        CalendarResponse("Australian Grand Prix", "Australia", "Melbourne", "2026-03-01", 1, "past", true),
+        CalendarResponse("Chinese Grand Prix", "China", "Shanghai", "2026-03-22", 2, "past", true),
+        CalendarResponse("Japanese Grand Prix", "Japan", "Suzuka", "2026-04-05", 3, "current", true),
+        CalendarResponse("Bahrain Grand Prix", "Bahrain", "Sakhir", "2026-04-19", 4, "future", false),
+        CalendarResponse("Saudi Arabian Grand Prix", "Saudi Arabia", "Jeddah", "2026-05-03", 5, "future", false),
+        CalendarResponse("Miami Grand Prix", "USA", "Miami", "2026-05-17", 6, "future", false),
+        CalendarResponse("Emilia Romagna Grand Prix", "Italy", "Imola", "2026-05-31", 7, "future", false),
+        CalendarResponse("Monaco Grand Prix", "Monaco", "Monte Carlo", "2026-06-07", 8, "future", false),
+        CalendarResponse("Spanish Grand Prix", "Spain", "Barcelona", "2026-06-21", 9, "future", false),
+        CalendarResponse("Canadian Grand Prix", "Canada", "Montreal", "2026-07-05", 10, "future", false)
+    )
+
+    var calendarItems by remember { mutableStateOf<List<CalendarResponse>>(mockCalendar) }
 
     LaunchedEffect(Unit) {
         try {
-            calendarItems = RetrofitClient.apiService.getCalendar()
-            isLoading = false
-        } catch (e: Exception) {
-            isLoading = false
-        }
+            val updatedCalendar = RetrofitClient.apiService.getCalendar()
+            if (updatedCalendar.isNotEmpty()) {
+                calendarItems = updatedCalendar
+            }
+        } catch (e: Exception) { }
     }
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
-        Spacer(modifier = Modifier.height(40.dp)) // Spazio alzato
+        Spacer(modifier = Modifier.height(40.dp))
         
-        // TITOLO MOLTO GRANDE
         Text(
             text = "CALENDARIO",
             color = Color.White,
@@ -74,25 +75,19 @@ fun CalendarScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        if (isLoading) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = Color(0xFF00FFCC))
-            }
-        } else {
-            Box(modifier = Modifier.weight(1f)) {
-                LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                    contentPadding = PaddingValues(bottom = 100.dp)
-                ) {
-                    items(calendarItems) { race ->
-                        CalendarRaceCard(race, onClick = {
-                            if (race.status == "past") {
-                                onNavigateToResults(race.round, race.name)
-                            } else if (race.is_clickable) {
-                                onNavigateToHome()
-                            }
-                        })
-                    }
+        Box(modifier = Modifier.weight(1f)) {
+            LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                contentPadding = PaddingValues(bottom = 100.dp)
+            ) {
+                items(calendarItems) { race ->
+                    CalendarRaceCard(race, onClick = {
+                        if (race.status == "past") {
+                            onNavigateToResults(race.round, race.name)
+                        } else if (race.status == "current" || race.is_clickable) {
+                            onNavigateToHome()
+                        }
+                    })
                 }
             }
         }
@@ -102,23 +97,28 @@ fun CalendarScreen(
 @Composable
 fun CalendarRaceCard(race: CalendarResponse, onClick: () -> Unit) {
     val isPast = race.status == "past"
-    val isCurrent = race.is_clickable && !isPast
+    val isCurrent = race.status == "current"
+    val isFuture = race.status == "future"
     
     val borderColor = when {
         isCurrent -> Color(0xFF00FFCC).copy(alpha = 0.8f)
         isPast -> Color.White.copy(alpha = 0.15f)
-        else -> Color.Transparent
+        else -> Color.White.copy(alpha = 0.05f)
     }
 
-    val backgroundColor = if (isCurrent) Color(0xFF00FFCC).copy(alpha = 0.05f) else Color.White.copy(alpha = 0.03f)
+    val backgroundColor = when {
+        isCurrent -> Color(0xFF00FFCC).copy(alpha = 0.05f)
+        isPast -> Color.White.copy(alpha = 0.03f)
+        else -> Color.White.copy(alpha = 0.01f)
+    }
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .background(backgroundColor, RoundedCornerShape(18.dp))
             .border(0.5.dp, borderColor, RoundedCornerShape(18.dp))
-            .clickable(enabled = race.is_clickable || isPast) { onClick() }
-            .padding(horizontal = 20.dp, vertical = 14.dp), // Altezza ridotta (vertical da 20 a 14)
+            .clickable(enabled = race.is_clickable || isPast || isCurrent) { onClick() }
+            .padding(horizontal = 20.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(modifier = Modifier.weight(1f)) {
@@ -128,34 +128,36 @@ fun CalendarRaceCard(race: CalendarResponse, onClick: () -> Unit) {
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Black
             )
+            // 1. Nome GP leggermente più grande
             Text(
                 text = race.name.uppercase(),
                 color = if (isPast || isCurrent) Color.White else Color.White.copy(alpha = 0.3f),
-                fontSize = 17.sp,
+                fontSize = 19.sp, 
                 fontWeight = FontWeight.ExtraBold,
-                fontStyle = if (isCurrent) FontStyle.Italic else FontStyle.Normal
+                fontStyle = if (isCurrent) FontStyle.Italic else FontStyle.Normal,
+                lineHeight = 20.sp
             )
-            // CITTÀ E NAZIONE PIÙ VICINE
+            // 1. Ridotto distanziamento tra nome e luogo
             Text(
                 text = "${race.city.uppercase()}, ${race.country}",
-                color = Color.White.copy(alpha = 0.5f),
+                color = if (isFuture) Color.White.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.5f),
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Medium,
-                modifier = Modifier.offset(y = (-2).dp)
+                modifier = Modifier.offset(y = (-4).dp)
             )
         }
         
         Column(horizontalAlignment = Alignment.End) {
-            val dateObj = LocalDate.parse(race.date)
+            val dateObj = try { LocalDate.parse(race.date) } catch(e: Exception) { LocalDate.now() }
             Text(
                 text = dateObj.dayOfMonth.toString(),
-                color = if (isPast || isCurrent) Color.White else Color.White.copy(alpha = 0.3f),
+                color = if (isPast || isCurrent) Color.White else Color.White.copy(alpha = 0.2f),
                 fontSize = 24.sp,
                 fontWeight = FontWeight.Black
             )
             Text(
                 text = dateObj.format(DateTimeFormatter.ofPattern("MMM")).uppercase(),
-                color = if (isPast || isCurrent) Color(0xFF00FFCC) else Color.White.copy(alpha = 0.3f),
+                color = if (isPast || isCurrent) Color(0xFF00FFCC) else Color.White.copy(alpha = 0.2f),
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Black
             )

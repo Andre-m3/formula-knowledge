@@ -1,6 +1,5 @@
 package com.formulaknowledge.app.data
 
-import com.formulaknowledge.app.ui.CalendarResponse
 import retrofit2.http.GET
 import retrofit2.http.Path
 
@@ -16,4 +15,10 @@ interface F1ApiService {
 
     @GET("/api/v1/results/{round_number}")
     suspend fun getResults(@Path("round_number") roundNumber: Int): List<RaceResultResponse>
+
+    @GET("/api/v1/standings/drivers")
+    suspend fun getDriverStandings(): List<DriverStanding>
+
+    @GET("/api/v1/standings/constructors")
+    suspend fun getConstructorStandings(): List<ConstructorStanding>
 }

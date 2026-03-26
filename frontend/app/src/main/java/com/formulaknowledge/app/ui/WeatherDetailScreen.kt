@@ -20,21 +20,12 @@ fun WeatherDetailScreen(raceWeek: RaceWeekResponse?, onBack: () -> Unit) {
     val weather = raceWeek?.weather_forecast
     
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
-        Spacer(modifier = Modifier.height(60.dp))
-        
-        Text(
-            text = "← BACK",
-            color = Color.White.copy(alpha = 0.5f),
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.clickable { onBack() }
-        )
-        
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(80.dp))
         
         Text(
             text = "WEATHER",
             color = Color.White,
-            fontSize = 42.sp,
+            fontSize = 54.sp,
             fontWeight = FontWeight.Black,
             fontStyle = FontStyle.Italic,
             letterSpacing = (-2).sp
@@ -42,7 +33,7 @@ fun WeatherDetailScreen(raceWeek: RaceWeekResponse?, onBack: () -> Unit) {
         Text(
             text = "${raceWeek?.gp_name?.uppercase() ?: "CIRCUIT"} FORECAST",
             color = Color(0xFF00FFCC),
-            fontSize = 14.sp,
+            fontSize = 16.sp,
             fontWeight = FontWeight.Black,
             letterSpacing = 1.sp
         )
@@ -101,13 +92,13 @@ fun WeatherInfoSmallCard(label: String, value: String, modifier: Modifier) {
         modifier = modifier.height(90.dp),
         shape = RoundedCornerShape(20.dp),
         color = Color.White.copy(alpha = 0.03f),
-        border = androidx.compose.foundation.BorderStroke(0.5.dp, Color.White.copy(alpha = 0.08f))
+        border = androidx.compose.foundation.BorderStroke(0.5.dp, Color.White.copy(alpha = 0.1f))
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.Center
         ) {
-            Text(text = label, color = Color.White.copy(alpha = 0.4f), fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
+            Text(text = label, color = Color.White.copy(alpha = 0.5f), fontSize = 12.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
             Text(text = value, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
         }
     }

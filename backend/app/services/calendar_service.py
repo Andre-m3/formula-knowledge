@@ -43,12 +43,18 @@ class CalendarService:
     def get_full_calendar(self):
         today = date.today()
         calendar_data = []
+        current_race = self.get_current_or_next_race()
         for race in self.races:
-            status = "past" if race["date"] < today else "future"
-            # Il "prossimo" è il primo future
+            if race == current_race:
+                status = "current"
+            elif race["date"] < today:
+                status = "past"
+            else:
+                status = "future"
+                
             calendar_data.append({
                 **race,
                 "status": status,
-                "is_clickable": status == "past" or race == self.get_current_or_next_race()
+                "is_clickable": status == "past" or status == "current"
             })
         return calendar_data

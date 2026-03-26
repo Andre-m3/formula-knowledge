@@ -34,14 +34,14 @@ class FiaScraperService:
         # SIMULAZIONE RISPOSTA AI
         return [
             {
-                "team_name": "Ferrari",
+                "team_name": "Scuderia Ferrari HP",
                 "updates": [
                     "Modifica all'ala anteriore per aumentare il carico aerodinamico nelle curve lente.",
                     "Nuovo disegno delle pance laterali per migliorare il raffreddamento."
                 ]
             },
             {
-                "team_name": "McLaren",
+                "team_name": "McLaren Mastercard F1 Team",
                 "updates": [
                     "Fondo vettura completamente ridisegnato per ridurre il porpoising."
                 ]
