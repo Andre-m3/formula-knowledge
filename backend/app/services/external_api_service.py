@@ -1,8 +1,29 @@
 import requests
+import time
 
 class ExternalApiService:
-    @staticmethod
-    def get_driver_standings(year: int = 2026):
+    _cache = {}
+    CACHE_TTL = 3600  # 1 ora di cache per i dati storici/classifiche
+
+    @classmethod
+    def _get_cached(cls, key):
+        if key in cls._cache:
+            data, timestamp = cls._cache[key]
+            if time.time() - timestamp < cls.CACHE_TTL:
+                return data
+        return None
+
+    @classmethod
+    def _set_cache(cls, key, data):
+        cls._cache[key] = (data, time.time())
+
+    @classmethod
+    def get_driver_standings(cls, year: int = 2026):
+        cache_key = f"driver_standings_{year}"
+        cached = cls._get_cached(cache_key)
+        if cached:
+            return cached
+
         # Utilizziamo Jolpica-F1, il successore moderno e open-source di Ergast
         url = f"https://api.jolpi.ca/ergast/f1/{year}/driverStandings.json"
         try:
@@ -30,13 +51,20 @@ class ExternalApiService:
                     "points": int(float(item["points"])),
                     "wins": int(item["wins"])
                 })
+            
+            cls._set_cache(cache_key, results)
             return results
         except Exception as e:
             print(f"Errore durante il recupero API esterna piloti: {e}")
             return []
 
-    @staticmethod
-    def get_constructor_standings(year: int = 2026):
+    @classmethod
+    def get_constructor_standings(cls, year: int = 2026):
+        cache_key = f"constructor_standings_{year}"
+        cached = cls._get_cached(cache_key)
+        if cached:
+            return cached
+
         url = f"https://api.jolpi.ca/ergast/f1/{year}/constructorStandings.json"
         try:
             response = requests.get(url, timeout=5)
@@ -57,13 +85,20 @@ class ExternalApiService:
                     "points": int(float(item["points"])),
                     "wins": int(item["wins"])
                 })
+            
+            cls._set_cache(cache_key, results)
             return results
         except Exception as e:
             print(f"Errore durante il recupero API esterna costruttori: {e}")
             return []
 
-    @staticmethod
-    def get_race_results(round_number: int, year: int = 2026):
+    @classmethod
+    def get_race_results(cls, round_number: int, year: int = 2026):
+        cache_key = f"race_results_{year}_{round_number}"
+        cached = cls._get_cached(cache_key)
+        if cached:
+            return cached
+
         url = f"https://api.jolpi.ca/ergast/f1/{year}/{round_number}/results.json"
         try:
             response = requests.get(url, timeout=5)
@@ -94,6 +129,8 @@ class ExternalApiService:
                     "points": int(float(item["points"])),
                     "time": time_str
                 })
+            
+            cls._set_cache(cache_key, results)
             return results
         except Exception as e:
             print(f"Errore API esterna risultati: {e}")

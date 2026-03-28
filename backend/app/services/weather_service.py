@@ -1,27 +1,37 @@
 import requests
+import time
+from datetime import datetime
 
 class WeatherService:
+    _cache = {}
+    CACHE_TTL = 1800  # 30 minuti per il meteo
+
     def __init__(self):
         self.base_url = "https://api.open-meteo.com/v1/forecast"
 
     def get_forecast(self, lat: float, lon: float):
-        """
-        Chiama l'API gratuita di Open-Meteo per ottenere le previsioni
-        per le coordinate geografiche di un circuito.
-        """
-        url = "https://api.open-meteo.com/v1/forecast"
+        cache_key = f"weather_{lat}_{lon}"
+        if cache_key in self._cache:
+            data, timestamp = self._cache[cache_key]
+            if time.time() - timestamp < self.CACHE_TTL:
+                return data
+
         params = {
             "latitude": lat,
             "longitude": lon,
-            "current": "temperature_2m,relative_humidity_2m,apparent_temperature,wind_speed_10m,uv_index,weather_code",
+            "current": "temperature_2m,relative_humidity_2m,apparent_temperature,wind_speed_10m,uv_index,weather_code,precipitation_probability",
+            "daily": "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,wind_speed_10m_max",
             "wind_speed_unit": "kmh",
-            "timezone": "auto"
+            "timezone": "auto",
+            "forecast_days": 5
         }
         try:
-            response = requests.get(url, params=params, timeout=3)
+            response = requests.get(self.base_url, params=params, timeout=3)
             response.raise_for_status()
             data = response.json()
-            return self._parse_weather_data(data)
+            parsed = self._parse_weather_data(data)
+            self._cache[cache_key] = (parsed, time.time())
+            return parsed
         except Exception as e:
             print(f"Errore API Meteo: {e}")
             return None
@@ -39,11 +49,27 @@ class WeatherService:
             95: "Thunderstorm"
         }
         
+        daily_forecasts = []
+        daily_data = data.get("daily", {})
+        if daily_data.get("time"):
+            for i in range(len(daily_data["time"])):
+                day_date = datetime.strptime(daily_data["time"][i], "%Y-%m-%d")
+                daily_forecasts.append({
+                    "day": day_date.strftime("%A"),
+                    "status": mapping.get(daily_data["weather_code"][i], "Cloudy"),
+                    "temp_max": f"{int(round(daily_data['temperature_2m_max'][i]))}°",
+                    "temp_min": f"{int(round(daily_data['temperature_2m_min'][i]))}°",
+                    "wind": f"{int(round(daily_data['wind_speed_10m_max'][i]))} km/h",
+                    "rain_probability": f"{daily_data['precipitation_probability_max'][i]}%"
+                })
+
         return {
             "status": mapping.get(code, "Cloudy"),
             "temp": f"{int(round(current.get('temperature_2m', 0)))}°C",
             "humidity": f"{int(current.get('relative_humidity_2m', 0))}%",
             "feels_like": f"{int(round(current.get('apparent_temperature', 0)))}°C",
             "wind": f"{int(round(current.get('wind_speed_10m', 0)))} km/h",
-            "uv": str(int(round(current.get("uv_index", 0))))
+            "uv": str(int(round(current.get("uv_index", 0)))),
+            "rain_probability": f"{current.get('precipitation_probability', 0)}%",
+            "daily": daily_forecasts
         }

@@ -6,6 +6,9 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -16,6 +19,7 @@ import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Leaderboard
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -25,12 +29,18 @@ import androidx.compose.ui.draw.blur
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.formulaknowledge.app.data.*
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 enum class AppScreen { HOME, CALENDAR, PERSONAL, UPDATES_LIST, TEAM_DETAIL, WEATHER_DETAIL, RESULTS, STANDINGS }
 
@@ -38,27 +48,47 @@ val AppBackgroundGradientColor = Color(0xFF0B0E14)
 
 @Composable
 fun UpdatesScreen() {
+    var updates by remember { mutableStateOf<List<TeamUpdatesResponse>>(emptyList()) }
     val mockRaceWeek = RaceWeekResponse(
-        gp_name = "Japanese Grand Prix",
+        gp_name = "Japanese",
         country = "Japan",
         city = "Suzuka",
+        circuit_name = "Suzuka International Racing Course",
         round_number = 3,
         is_sprint = false,
         dates = listOf("03 Apr", "04 Apr", "05 Apr"),
-        weather_forecast = WeatherForecast("Partly Cloudy", "22°C", "82%", "22°C", "7km/h", "Low")
+        weather_forecast = WeatherForecast("Partly Cloudy", "22°C", "82%", "22°C", "7km/h", "Low", "10%", emptyList())
     )
-
-    // CACHE LOCALE (Lifting State): i dati persistono finché l'app è aperta
-    var updates by remember { mutableStateOf<List<TeamUpdatesResponse>>(emptyList()) }
     var raceWeek by remember { mutableStateOf<RaceWeekResponse?>(mockRaceWeek) }
     var cachedDrivers by remember { mutableStateOf<List<DriverStanding>>(emptyList()) }
     var cachedConstructors by remember { mutableStateOf<List<ConstructorStanding>>(emptyList()) }
-    
-    var isLoading by remember { mutableStateOf(false) }
+
+    var isLoadingRaceWeek by remember { mutableStateOf(false) }
     var currentScreen by remember { mutableStateOf(AppScreen.HOME) }
     var selectedTeam by remember { mutableStateOf<TeamUpdatesResponse?>(null) }
     var selectedRound by remember { mutableIntStateOf(0) }
     var selectedGpName by remember { mutableStateOf("") }
+
+    var isBottomBarVisible by remember { mutableStateOf(true) }
+    val nestedScrollConnection = remember {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (available.y < -15) { isBottomBarVisible = false } 
+                else if (available.y > 15) { isBottomBarVisible = true }
+                return Offset.Zero
+            }
+        }
+    }
+    
+    LaunchedEffect(currentScreen) {
+        isBottomBarVisible = true
+    }
+
+    val bottomBarOffset by animateDpAsState(
+        targetValue = if (isBottomBarVisible) 0.dp else 120.dp,
+        animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
+        label = "BottomBarOffset"
+    )
 
     BackHandler(enabled = currentScreen != AppScreen.HOME) {
         when (currentScreen) {
@@ -76,7 +106,11 @@ fun UpdatesScreen() {
         } catch (e: Exception) { }
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(AppBackgroundGradientColor)) {
+    Box(modifier = Modifier
+        .fillMaxSize()
+        .background(AppBackgroundGradientColor)
+        .nestedScroll(nestedScrollConnection)
+    ) {
         Canvas(modifier = Modifier.fillMaxSize().blur(220.dp).alpha(0.15f)) {
             drawCircle(color = Color(0xFFE32219), radius = size.width / 2f, center = center.copy(y = size.height * 0.2f, x = size.width * 0.8f))
             drawCircle(color = Color(0xFF00D2BE), radius = size.width / 2.5f, center = center.copy(y = size.height * 0.7f, x = size.width * 0.2f))
@@ -89,7 +123,7 @@ fun UpdatesScreen() {
                 label = "ScreenTransition"
             ) { targetScreen ->
                 when (targetScreen) {
-                    AppScreen.HOME -> HomeScreen(raceWeek, isLoading, onNavigate = { currentScreen = it })
+                    AppScreen.HOME -> HomeScreen(raceWeek, isLoadingRaceWeek, onNavigate = { currentScreen = it })
                     AppScreen.CALENDAR -> CalendarScreen(
                         onNavigateToHome = { currentScreen = AppScreen.HOME },
                         onNavigateToResults = { round, name ->
@@ -99,22 +133,38 @@ fun UpdatesScreen() {
                         }
                     )
                     AppScreen.PERSONAL -> PersonalScreen()
-                    AppScreen.UPDATES_LIST -> UpdatesListScreen(updates, isLoading, onTeamClick = { selectedTeam = it; currentScreen = AppScreen.TEAM_DETAIL }, onBack = { currentScreen = AppScreen.HOME })
-                    AppScreen.TEAM_DETAIL -> TeamUpdateDetailScreen(selectedTeam!!, onBack = { currentScreen = AppScreen.UPDATES_LIST })
-                    AppScreen.WEATHER_DETAIL -> WeatherDetailScreen(raceWeek, onBack = { currentScreen = AppScreen.HOME })
-                    AppScreen.RESULTS -> RaceResultsScreen(selectedRound, selectedGpName, onBack = { currentScreen = AppScreen.CALENDAR })
+                    AppScreen.UPDATES_LIST -> UpdatesListScreen(updates, isLoadingRaceWeek, onTeamClick = { selectedTeam = it; currentScreen = AppScreen.TEAM_DETAIL })
+                    AppScreen.TEAM_DETAIL -> TeamUpdateDetailScreen(selectedTeam!!)
+                    AppScreen.WEATHER_DETAIL -> WeatherDetailScreen(raceWeek)
+                    AppScreen.RESULTS -> RaceResultsScreen(selectedRound, selectedGpName)
                     AppScreen.STANDINGS -> StandingsScreen(
                         drivers = cachedDrivers,
                         constructors = cachedConstructors,
-                        onDataLoaded = { d, c -> cachedDrivers = d; cachedConstructors = c },
-                        onBack = { currentScreen = AppScreen.HOME }
+                        onDataLoaded = { d, c -> cachedDrivers = d; cachedConstructors = c }
                     )
                 }
             }
 
-            if (currentScreen in listOf(AppScreen.HOME, AppScreen.CALENDAR, AppScreen.PERSONAL, AppScreen.RESULTS)) {
-                Box(modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 20.dp)) {
-                    FloatingBottomBar(currentScreen = currentScreen, onNavigate = { currentScreen = it })
+            if (currentScreen in listOf(AppScreen.HOME, AppScreen.CALENDAR, AppScreen.PERSONAL, AppScreen.RESULTS, AppScreen.STANDINGS, AppScreen.WEATHER_DETAIL)) {
+                Box(
+                    modifier = Modifier
+                        .offset(y = bottomBarOffset)
+                        .align(Alignment.BottomCenter)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(110.dp)
+                            .background(
+                                brush = Brush.verticalGradient(
+                                    colors = listOf(Color.Transparent, AppBackgroundGradientColor.copy(alpha = 0.85f))
+                                )
+                            )
+                    )
+
+                    Box(modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 20.dp)) {
+                        FloatingBottomBar(currentScreen = currentScreen, onNavigate = { currentScreen = it })
+                    }
                 }
             }
         }
@@ -125,11 +175,26 @@ fun UpdatesScreen() {
 fun StandingsScreen(
     drivers: List<DriverStanding>,
     constructors: List<ConstructorStanding>,
-    onDataLoaded: (List<DriverStanding>, List<ConstructorStanding>) -> Unit,
-    onBack: () -> Unit
+    onDataLoaded: (List<DriverStanding>, List<ConstructorStanding>) -> Unit
 ) {
     var selectedTab by remember { mutableStateOf("Drivers") }
     var isLoading by remember { mutableStateOf(drivers.isEmpty()) }
+    
+    var swipeOffset by remember { mutableFloatStateOf(0f) }
+    val dragModifier = Modifier.draggable(
+        orientation = Orientation.Horizontal,
+        state = rememberDraggableState { delta ->
+            swipeOffset += delta
+        },
+        onDragStopped = {
+            if (swipeOffset < -150 && selectedTab == "Drivers") {
+                selectedTab = "Constructors"
+            } else if (swipeOffset > 150 && selectedTab == "Constructors") {
+                selectedTab = "Drivers"
+            }
+            swipeOffset = 0f
+        }
+    )
 
     LaunchedEffect(Unit) {
         if (drivers.isEmpty()) {
@@ -143,38 +208,202 @@ fun StandingsScreen(
             }
         }
     }
-    
-    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
-        Spacer(modifier = Modifier.height(80.dp))
-        Text(text = "STANDINGS", color = Color.White, fontSize = 42.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic)
-        
-        Spacer(modifier = Modifier.height(24.dp))
-        
-        Surface(
-            modifier = Modifier.fillMaxWidth().height(50.dp),
-            shape = RoundedCornerShape(25.dp),
-            color = Color.White.copy(alpha = 0.05f),
-            border = androidx.compose.foundation.BorderStroke(0.5.dp, Color.White.copy(alpha = 0.1f))
+
+    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp).then(dragModifier)) {
+        Spacer(modifier = Modifier.height(46.dp)) 
+        Text(
+            text = "CLASSIFICHE",
+            color = Color.White,
+            fontSize = 54.sp,
+            fontWeight = FontWeight.Black,
+            fontStyle = FontStyle.Italic,
+            letterSpacing = (-3).sp,
+            lineHeight = 50.sp
+        )
+        Text(
+            text = "2026",
+            color = Color(0xFF00FFCC),
+            fontSize = 38.sp,
+            fontWeight = FontWeight.Black,
+            fontStyle = FontStyle.Italic,
+            letterSpacing = (-2).sp,
+            modifier = Modifier.offset(y = (-10).dp)
+        )
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        Box(
+            modifier = Modifier.fillMaxWidth().height(44.dp),
+            contentAlignment = Alignment.CenterStart
         ) {
-            Row(modifier = Modifier.fillMaxSize()) {
-                TabItem("Drivers", selectedTab == "Drivers", Modifier.weight(1f)) { selectedTab = "Drivers" }
-                TabItem("Constructors", selectedTab == "Constructors", Modifier.weight(1f)) { selectedTab = "Constructors" }
+            Row(
+                modifier = Modifier
+                    .wrapContentWidth()
+                    .background(Color.White.copy(alpha = 0.04f), RoundedCornerShape(22.dp))
+                    .padding(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                TabItemMinimalAnimated("Drivers", selectedTab == "Drivers") { selectedTab = "Drivers" }
+                TabItemMinimalAnimated("Constructors", selectedTab == "Constructors") { selectedTab = "Constructors" }
             }
         }
-        
+
         Spacer(modifier = Modifier.height(20.dp))
-        
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 120.dp)) {
-            if (isLoading) {
-                items(10) { ShimmerStandingRow() }
-            } else {
-                if (selectedTab == "Drivers") {
-                    items(drivers) { driver -> StandingRow(driver.position, driver.driver_name, driver.points.toString(), driver.constructor_name) }
+
+        AnimatedContent(
+            targetState = selectedTab,
+            transitionSpec = {
+                if (targetState == "Constructors") {
+                    (slideInHorizontally { width -> width } + fadeIn()).togetherWith(slideOutHorizontally { width -> -width } + fadeOut())
                 } else {
-                    items(constructors) { team -> StandingRow(team.position, team.constructor_name, team.points.toString()) }
+                    (slideInHorizontally { width -> -width } + fadeIn()).togetherWith(slideOutHorizontally { width -> width } + fadeOut())
+                }.using(SizeTransform(clip = false))
+            },
+            label = "StandingsListTransition"
+        ) { targetTab ->
+            LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(bottom = 120.dp),
+                modifier = Modifier.graphicsLayer {
+                    val progress = Math.abs(swipeOffset) / 500f
+                    alpha = 1f - (progress * 0.5f)
+                    scaleX = 1f - (progress * 0.05f)
+                }
+            ) {
+                if (isLoading) {
+                    items(10) { ShimmerStandingRow() }
+                } else {
+                    if (targetTab == "Drivers") {
+                        val leader = drivers.firstOrNull()
+                        val secondPlacePoints = drivers.getOrNull(1)?.points ?: 0
+                        
+                        if (leader != null) {
+                            item {
+                                LeaderCard(
+                                    name = leader.driver_name,
+                                    subtitle = leader.constructor_name,
+                                    points = leader.points.toString(),
+                                    gap = if (leader.points - secondPlacePoints > 0) "+${leader.points - secondPlacePoints} PTS" else "LEADER",
+                                    icon = "1" // Racing number or icon
+                                )
+                                Spacer(modifier = Modifier.height(16.dp))
+                            }
+                        }
+                        items(drivers.drop(1)) { driver -> 
+                            StandingRow(driver.position, driver.driver_name, driver.points.toString(), driver.constructor_name, height = 61.dp) 
+                        }
+                    } else {
+                        val leader = constructors.firstOrNull()
+                        val secondPlacePoints = constructors.getOrNull(1)?.points ?: 0
+
+                        if (leader != null) {
+                            item {
+                                LeaderCard(
+                                    name = leader.constructor_name,
+                                    subtitle = "WORLD CONSTRUCTORS LEADER",
+                                    points = leader.points.toString(),
+                                    gap = if (leader.points - secondPlacePoints > 0) "+${leader.points - secondPlacePoints} PTS" else "LEADER",
+                                    icon = "\uD83C\uDFCE\uFE0F" // Car icon
+                                )
+                                Spacer(modifier = Modifier.height(16.dp))
+                            }
+                        }
+                        items(constructors.drop(1)) { team -> 
+                            StandingRow(team.position, team.constructor_name, team.points.toString(), height = 61.dp) 
+                        }
+                    }
                 }
             }
         }
+    }
+}
+
+@Composable
+fun LeaderCard(name: String, subtitle: String, points: String, gap: String, icon: String) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().height(140.dp),
+        shape = RoundedCornerShape(24.dp),
+        color = Color(0xFF1E0A0A).copy(alpha = 0.4f),
+        border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF00FFCC).copy(alpha = 0.6f))
+    ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            // Background decoration
+            Canvas(modifier = Modifier.fillMaxSize().alpha(0.1f)) {
+                drawCircle(color = Color(0xFF00FFCC), radius = size.width / 3f, center = Offset(size.width, 0f))
+            }
+
+            Row(modifier = Modifier.padding(24.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Surface(color = Color(0xFF00FFCC).copy(alpha = 0.1f), shape = RoundedCornerShape(4.dp)) {
+                        Text(
+                            text = "CHAMPIONSHIP LEADER",
+                            color = Color(0xFF00FFCC),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Black,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = name.uppercase(),
+                        color = Color.White,
+                        fontSize = 28.sp,
+                        fontWeight = FontWeight.Black,
+                        fontStyle = FontStyle.Italic,
+                        lineHeight = 30.sp
+                    )
+                    Text(
+                        text = subtitle.uppercase(),
+                        color = Color.White.copy(alpha = 0.5f),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        text = points,
+                        color = Color.White,
+                        fontSize = 42.sp,
+                        fontWeight = FontWeight.Black,
+                        fontStyle = FontStyle.Italic,
+                        lineHeight = 44.sp
+                    )
+                    Text(
+                        text = gap,
+                        color = Color(0xFF00FFCC),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Black
+                    )
+                }
+            }
+            
+            // Large Icon/Number in background
+            Text(
+                text = icon,
+                color = Color.White.copy(alpha = 0.05f),
+                fontSize = 120.sp,
+                fontWeight = FontWeight.Black,
+                modifier = Modifier.align(Alignment.BottomEnd).offset(x = 20.dp, y = 40.dp)
+            )
+        }
+    }
+}
+
+@Composable
+fun TabItemMinimalAnimated(label: String, isSelected: Boolean, onClick: () -> Unit) {
+    val backgroundAlpha by animateFloatAsState(if (isSelected) 0.15f else 0f, label = "TabBg")
+    val textColor by animateColorAsState(if (isSelected) Color(0xFF00FFCC) else Color.White.copy(alpha = 0.4f), label = "TabText")
+    
+    Box(
+        modifier = Modifier
+            .height(36.dp)
+            .background(Color(0xFF00FFCC).copy(alpha = backgroundAlpha), RoundedCornerShape(18.dp))
+            .clickable { onClick() }
+            .padding(horizontal = 16.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(text = label.uppercase(), color = textColor, fontSize = 11.sp, fontWeight = FontWeight.Black)
     }
 }
 
@@ -199,7 +428,7 @@ fun ShimmerStandingRow() {
         start = Offset.Zero,
         end = Offset(x = translateAnim.value, y = translateAnim.value)
     )
-    Box(modifier = Modifier.fillMaxWidth().height(72.dp).background(brush, RoundedCornerShape(12.dp)))
+    Box(modifier = Modifier.fillMaxWidth().height(61.dp).background(brush, RoundedCornerShape(12.dp)))
 }
 
 @Composable
@@ -207,27 +436,29 @@ fun FloatingBottomBar(currentScreen: AppScreen, onNavigate: (AppScreen) -> Unit)
     val items = listOf(
         Triple(Icons.Default.DateRange, "Calendar", AppScreen.CALENDAR),
         Triple(Icons.Default.Home, "Home", AppScreen.HOME),
+        Triple(Icons.Default.Leaderboard, "Classifiche", AppScreen.STANDINGS),
         Triple(Icons.Default.Person, "Personal", AppScreen.PERSONAL)
     )
 
-    val barWidth = 220.dp
+    val barWidth = 240.dp
     val barHeight = 52.dp
 
     Surface(
         modifier = Modifier.height(barHeight).width(barWidth),
         shape = RoundedCornerShape(26.dp),
-        color = Color.White.copy(alpha = 0.12f),
-        border = androidx.compose.foundation.BorderStroke(0.5.dp, Color.White.copy(alpha = 0.2f))
+        color = Color(0xFF1E0A0A).copy(alpha = 0.82f),
+        border = androidx.compose.foundation.BorderStroke(0.5.dp, Color.White.copy(alpha = 0.15f))
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
             val selectedIndex = items.indexOfFirst { it.third == when(currentScreen) {
                 AppScreen.CALENDAR -> AppScreen.CALENDAR
+                AppScreen.STANDINGS -> AppScreen.STANDINGS
                 AppScreen.PERSONAL -> AppScreen.PERSONAL
                 AppScreen.RESULTS -> AppScreen.CALENDAR
                 else -> AppScreen.HOME
             } }
-            
-            val itemWidth = 220.dp / 3
+
+            val itemWidth = barWidth / items.size
             val indicatorOffset by animateDpAsState(
                 targetValue = (selectedIndex * itemWidth.value).dp,
                 animationSpec = tween(300),
@@ -245,8 +476,9 @@ fun FloatingBottomBar(currentScreen: AppScreen, onNavigate: (AppScreen) -> Unit)
                 items.forEach { (icon, label, screen) ->
                     val isSelected = when {
                         currentScreen == screen -> true
+                        screen == AppScreen.STANDINGS && currentScreen == AppScreen.STANDINGS -> true
                         screen == AppScreen.CALENDAR && currentScreen == AppScreen.RESULTS -> true
-                        screen == AppScreen.HOME && currentScreen !in listOf(AppScreen.CALENDAR, AppScreen.PERSONAL, AppScreen.RESULTS) -> true
+                        screen == AppScreen.HOME && currentScreen !in listOf(AppScreen.CALENDAR, AppScreen.PERSONAL, AppScreen.RESULTS, AppScreen.STANDINGS, AppScreen.WEATHER_DETAIL) -> true
                         else -> false
                     }
                     Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
@@ -255,7 +487,7 @@ fun FloatingBottomBar(currentScreen: AppScreen, onNavigate: (AppScreen) -> Unit)
                                 imageVector = icon,
                                 contentDescription = label,
                                 tint = if (isSelected) Color(0xFF00FFCC) else Color.White.copy(alpha = 0.4f),
-                                modifier = Modifier.size(22.dp)
+                                modifier = Modifier.size(24.dp)
                             )
                         }
                     }
@@ -268,10 +500,10 @@ fun FloatingBottomBar(currentScreen: AppScreen, onNavigate: (AppScreen) -> Unit)
 @Composable
 fun HomeScreen(raceWeek: RaceWeekResponse?, isLoading: Boolean, onNavigate: (AppScreen) -> Unit) {
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
-        Spacer(modifier = Modifier.height(40.dp))
+        Spacer(modifier = Modifier.height(26.dp)) 
 
-        Box(modifier = Modifier.fillMaxWidth().height(160.dp)) {
-            Column(modifier = Modifier.align(Alignment.BottomStart)) {
+        Box(modifier = Modifier.fillMaxWidth().height(160.dp), contentAlignment = Alignment.BottomStart) {
+            Column {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Surface(color = Color(0xFF00FFCC), shape = RoundedCornerShape(4.dp)) {
                         Text(
@@ -286,7 +518,8 @@ fun HomeScreen(raceWeek: RaceWeekResponse?, isLoading: Boolean, onNavigate: (App
                     Text(text = "NEXT EVENT", color = Color.White.copy(alpha = 0.5f), fontSize = 16.sp, fontWeight = FontWeight.Bold)
                 }
 
-                val displayGpName = raceWeek?.gp_name?.uppercase()?.replace("GRAND PRIX", "GP") ?: "JAPANESE GP"
+                val rawGpName = raceWeek?.gp_name?.uppercase()?.replace("GRAND PRIX", "")?.trim() ?: "JAPANESE"
+                val displayGpName = "$rawGpName GP"
 
                 Text(
                     text = displayGpName,
@@ -294,7 +527,7 @@ fun HomeScreen(raceWeek: RaceWeekResponse?, isLoading: Boolean, onNavigate: (App
                     fontSize = 58.sp,
                     fontWeight = FontWeight.Black,
                     fontStyle = FontStyle.Italic,
-                    letterSpacing = (-4).sp,
+                    letterSpacing = (-5).sp, 
                     lineHeight = 64.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Clip
@@ -309,19 +542,24 @@ fun HomeScreen(raceWeek: RaceWeekResponse?, isLoading: Boolean, onNavigate: (App
                 } else {
                     "3-5 APRIL"
                 }
-                val locationStr = raceWeek?.city?.uppercase() ?: "SUZUKA"
+                
+                val cityStr = raceWeek?.city?.uppercase() ?: "SUZUKA"
+                val countryStr = raceWeek?.country ?: "Japan"
+                val locationStr = "$cityStr ($countryStr)"
 
                 Text(
                     text = "$dateRangeStr \u2022 $locationStr",
                     color = Color(0xFF00FFCC),
-                    fontSize = 14.sp,
+                    fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
-                    modifier = Modifier.offset(y = (-4).dp)
+                    modifier = Modifier.offset(y = (-4).dp),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }
 
-        Spacer(modifier = Modifier.height(30.dp))
+        Spacer(modifier = Modifier.height(26.dp)) 
 
         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
             FullWidthGlassCard(title = "RACE SESSIONS", content = "FP1 starts in 3 days", accentColor = Color(0xFF00FFCC), isHighlighted = true, onClick = { })
@@ -342,22 +580,6 @@ fun HomeScreen(raceWeek: RaceWeekResponse?, isLoading: Boolean, onNavigate: (App
             )
 
             FullWidthGlassCard(title = "TECHNICAL UPDATES", content = "Check latest upgrades...", accentColor = Color(0xFF00FFCC), onClick = { onNavigate(AppScreen.UPDATES_LIST) })
-
-            Row(modifier = Modifier.fillMaxWidth()) {
-                Surface(
-                    modifier = Modifier.weight(0.55f).height(72.dp).clickable { onNavigate(AppScreen.STANDINGS) },
-                    shape = RoundedCornerShape(20.dp),
-                    color = Color.White.copy(alpha = 0.05f),
-                    border = androidx.compose.foundation.BorderStroke(0.5.dp, Color.White.copy(alpha = 0.1f))
-                ) {
-                    Row(modifier = Modifier.padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Leaderboard, null, tint = Color(0xFF00FFCC), modifier = Modifier.size(24.dp))
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text("STANDINGS", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Black)
-                    }
-                }
-                Spacer(modifier = Modifier.weight(0.45f))
-            }
         }
     }
 }
@@ -369,27 +591,27 @@ fun FullWidthGlassCard(title: String, content: String, accentColor: Color, isHig
     val titleColor = if (isHighlighted) Color(0xFF00FFCC) else accentColor
 
     Surface(
-        modifier = Modifier.fillMaxWidth().height(92.dp).clickable { onClick() },
+        modifier = Modifier.fillMaxWidth().height(76.dp).clickable { onClick() },
         shape = RoundedCornerShape(20.dp),
         color = cardBackground,
         border = androidx.compose.foundation.BorderStroke(0.5.dp, cardBorder)
     ) {
-        Column(modifier = Modifier.padding(horizontal = 22.dp), verticalArrangement = Arrangement.Center) {
-            Text(text = title, color = titleColor, fontSize = 14.sp, fontWeight = FontWeight.Black, letterSpacing = 1.5.sp)
-            Text(text = content, color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.ExtraBold)
+        Column(modifier = Modifier.padding(horizontal = 16.dp).fillMaxHeight(), verticalArrangement = Arrangement.Center) {
+            Text(text = title, color = titleColor, fontSize = 12.sp, fontWeight = FontWeight.Black, letterSpacing = 1.2.sp)
+            Text(text = content, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
         }
     }
 }
 
 @Composable
-fun UpdatesListScreen(updates: List<TeamUpdatesResponse>, isLoading: Boolean, onTeamClick: (TeamUpdatesResponse) -> Unit, onBack: () -> Unit) {
+fun UpdatesListScreen(updates: List<TeamUpdatesResponse>, isLoading: Boolean, onTeamClick: (TeamUpdatesResponse) -> Unit) {
     Column(modifier = Modifier.fillMaxSize()) {
-        Text(text = "\u2190 BACK", color = Color.White.copy(alpha = 0.5f), modifier = Modifier.padding(top = 48.dp, start = 20.dp, bottom = 12.dp).clickable { onBack() }, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(46.dp)) 
         Text(text = "UPDATES", color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(start = 20.dp, bottom = 24.dp))
         if (isLoading && updates.isEmpty()) {
             Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator(color = Color(0xFF00FFCC)) }
         } else {
-            LazyColumn {
+            LazyColumn(contentPadding = PaddingValues(bottom = 120.dp)) {
                 items(updates) { update ->
                     TeamUpdateCard(update.team_name, update.team_color_hex, onClick = { onTeamClick(update) })
                 }
@@ -399,13 +621,13 @@ fun UpdatesListScreen(updates: List<TeamUpdatesResponse>, isLoading: Boolean, on
 }
 
 @Composable
-fun TeamUpdateDetailScreen(teamUpdate: TeamUpdatesResponse, onBack: () -> Unit) {
+fun TeamUpdateDetailScreen(teamUpdate: TeamUpdatesResponse) {
     val teamColor = try { Color(android.graphics.Color.parseColor(teamUpdate.team_color_hex)) } catch (e: Exception) { Color.Gray }
-    Column(modifier = Modifier.fillMaxSize().padding(20.dp)) {
-        Text(text = "\u2190 BACK", color = teamColor, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 28.dp).clickable { onBack() })
+    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
+        Spacer(modifier = Modifier.height(46.dp))
         Text(text = teamUpdate.team_name.uppercase(), color = Color.White, fontSize = 42.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic)
         Spacer(modifier = Modifier.height(24.dp))
-        LazyColumn {
+        LazyColumn(contentPadding = PaddingValues(bottom = 120.dp)) {
             items(teamUpdate.updates) { update ->
                 Surface(
                     modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
@@ -429,7 +651,7 @@ fun TeamUpdateCard(name: String, colorHex: String, onClick: () -> Unit) {
         color = Color.White.copy(alpha = 0.05f),
         border = androidx.compose.foundation.BorderStroke(0.5.dp, teamColor.copy(alpha = 0.4f))
     ) {
-        Row(modifier = Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(modifier = Modifier.padding(20.dp).fillMaxHeight(), verticalAlignment = Alignment.CenterVertically) {
             Box(modifier = Modifier.size(4.dp, 24.dp).background(teamColor, RoundedCornerShape(2.dp)))
             Spacer(modifier = Modifier.width(16.dp))
             Text(text = name, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
@@ -439,8 +661,12 @@ fun TeamUpdateCard(name: String, colorHex: String, onClick: () -> Unit) {
 
 @Composable
 fun PersonalScreen() {
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text(text = "PERSONAL PROFILE", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
+        Spacer(modifier = Modifier.height(46.dp))
+        Text(text = "PERSONAL", color = Color.White, fontSize = 42.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic)
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text(text = "PROFILE DETAILS", color = Color.White.copy(alpha = 0.5f), fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        }
     }
 }
 
@@ -455,21 +681,46 @@ fun TabItem(label: String, isSelected: Boolean, modifier: Modifier, onClick: () 
 }
 
 @Composable
-fun StandingRow(pos: Int, name: String, points: String, subtitle: String? = null) {
+fun StandingRow(pos: Int, name: String, points: String, subtitle: String? = null, height: androidx.compose.ui.unit.Dp = 72.dp) {
     Surface(
-        modifier = Modifier.fillMaxWidth().height(72.dp),
+        modifier = Modifier.fillMaxWidth().height(height),
         shape = RoundedCornerShape(12.dp),
         color = Color.White.copy(alpha = 0.03f)
     ) {
         Row(modifier = Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(text = pos.toString(), color = Color(0xFF00FFCC), fontSize = 20.sp, fontWeight = FontWeight.Black, modifier = Modifier.width(40.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(text = name, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+            Text(
+                text = pos.toString(), 
+                color = Color(0xFF00FFCC), 
+                fontSize = 18.sp, 
+                fontWeight = FontWeight.Black, 
+                modifier = Modifier.width(40.dp),
+                lineHeight = 22.sp
+            )
+            Column(modifier = Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.Center) {
+                Text(
+                    text = name, 
+                    color = Color.White, 
+                    fontSize = 16.sp, 
+                    fontWeight = FontWeight.Bold,
+                    lineHeight = 18.sp
+                )
                 if (subtitle != null) {
-                    Text(text = subtitle.uppercase(), color = Color.White.copy(alpha = 0.4f), fontSize = 11.sp, fontWeight = FontWeight.Black)
+                    Text(
+                        text = subtitle.uppercase(), 
+                        color = Color.White.copy(alpha = 0.4f), 
+                        fontSize = 10.sp, 
+                        fontWeight = FontWeight.Black,
+                        lineHeight = 12.sp
+                    )
                 }
             }
-            Text(text = points, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold)
+            Text(
+                text = points, 
+                color = Color.White, 
+                fontSize = 17.sp, 
+                fontWeight = FontWeight.ExtraBold,
+                lineHeight = 20.sp
+            )
         }
     }
 }

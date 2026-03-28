@@ -13,10 +13,18 @@ from .services.external_api_service import ExternalApiService
 
 app = FastAPI(title="Formula Knowledge API")
 
-# Questo comando crea fisicamente le tabelle nel DB SQLite basandosi sui modelli creati
+# Crea le tabelle nel DB SQLite
 models.Base.metadata.create_all(bind=database.engine)
 
 # --- SCHEMI ---
+
+class DailyForecastSchema(BaseModel):
+    day: str
+    status: str
+    temp_max: str
+    temp_min: str
+    wind: str
+    rain_probability: str
 
 class WeatherForecastSchema(BaseModel):
     status: str
@@ -25,11 +33,14 @@ class WeatherForecastSchema(BaseModel):
     feels_like: str
     wind: str
     uv: str
+    rain_probability: str
+    daily: List[DailyForecastSchema]
 
 class RaceWeekResponse(BaseModel):
     gp_name: str
     country: str
     city: str
+    circuit_name: Optional[str] = None
     round_number: int
     is_sprint: bool
     dates: List[str]
@@ -39,10 +50,12 @@ class CalendarEntryResponse(BaseModel):
     name: str
     country: str
     city: str
+    circuit_name: Optional[str] = None
     date: date
     round: int
     status: str
     is_clickable: bool
+    cancelled: Optional[bool] = False
 
 class DriverStandingResponse(BaseModel):
     position: int
@@ -88,6 +101,7 @@ async def get_current_raceweek():
         "gp_name": race["name"],
         "country": race["country"],
         "city": race["city"],
+        "circuit_name": race.get("circuit_name"),
         "round_number": race["round"],
         "is_sprint": False,
         "dates": dates_list,
@@ -96,13 +110,12 @@ async def get_current_raceweek():
 
 @app.get("/api/v1/standings/drivers", response_model=List[DriverStandingResponse])
 def get_driver_standings():
-    # Nessun database: chiamata diretta alle API esterne!
+    # Per ora chiamiamo direttamente l'API esterna senza logica di cache DB complessa
     external_data = ExternalApiService.get_driver_standings(year=2026)
     return [DriverStandingResponse(**data) for data in external_data]
 
 @app.get("/api/v1/standings/constructors", response_model=List[ConstructorStandingResponse])
 def get_constructor_standings():
-    # Nessun database: chiamata diretta alle API esterne!
     external_data = ExternalApiService.get_constructor_standings(year=2026)
     return [ConstructorStandingResponse(**data) for data in external_data]
 
@@ -113,7 +126,6 @@ def get_calendar():
 
 @app.get("/api/v1/results/{round_number}", response_model=List[RaceResultResponseSchema])
 def get_race_results(round_number: int):
-    # Nessun database: chiamata diretta alle API esterne (Jolpica)!
     external_data = ExternalApiService.get_race_results(round_number, year=2026)
     return [RaceResultResponseSchema(**data) for data in external_data]
 
