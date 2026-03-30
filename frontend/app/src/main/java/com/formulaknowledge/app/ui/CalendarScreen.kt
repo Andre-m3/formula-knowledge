@@ -26,7 +26,8 @@ import java.time.format.DateTimeFormatter
 @Composable
 fun CalendarScreen(
     onNavigateToHome: () -> Unit,
-    onNavigateToResults: (Int, String) -> Unit
+    onNavigateToResults: (Int, String) -> Unit,
+    onNavigateToCircuit: (Int) -> Unit
 ) {
     // Lista completa 2026 come fallback locale
     val full2026Calendar = listOf(
@@ -97,11 +98,7 @@ fun CalendarScreen(
             ) {
                 items(calendarItems) { race ->
                     CalendarRaceCard(race, onClick = {
-                        if (race.status == "past") {
-                            onNavigateToResults(race.round, race.name)
-                        } else if (race.status == "current" || race.is_clickable) {
-                            onNavigateToHome()
-                        }
+                        onNavigateToCircuit(race.round)
                     })
                 }
             }
@@ -136,7 +133,7 @@ fun CalendarRaceCard(race: CalendarResponse, onClick: () -> Unit) {
             .height(82.dp) // Fixed height for alignment
             .background(backgroundColor, RoundedCornerShape(18.dp))
             .border(0.5.dp, borderColor, RoundedCornerShape(18.dp))
-            .clickable(enabled = (race.is_clickable || isPast || isCurrent) && !isCancelled) { onClick() }
+            .clickable(enabled = !isCancelled) { onClick() }
             .padding(horizontal = 20.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {

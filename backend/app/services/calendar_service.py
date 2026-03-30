@@ -1,4 +1,4 @@
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 
 class CalendarService:
     def __init__(self):
@@ -6,7 +6,7 @@ class CalendarService:
         self.races = [
             {"name": "Australian Grand Prix", "country": "Australia", "city": "Melbourne", "circuit_name": "Albert Park Circuit", "lat": -37.8497, "lon": 144.968, "date": date(2026, 3, 1), "round": 1},
             {"name": "Chinese Grand Prix", "country": "China", "city": "Shanghai", "circuit_name": "Shanghai International Circuit", "lat": 31.3389, "lon": 121.22, "date": date(2026, 3, 22), "round": 2},
-            {"name": "Japanese Grand Prix", "country": "Japan", "city": "Suzuka", "circuit_name": "Suzuka International Racing Course", "lat": 34.8431, "lon": 136.541, "date": date(2026, 4, 5), "round": 3},
+            {"name": "Japanese Grand Prix", "country": "Japan", "city": "Suzuka", "circuit_name": "Suzuka International Racing Course", "lat": 34.8431, "lon": 136.541, "date": date(2026, 3, 29), "round": 3},
             {"name": "Bahrain Grand Prix", "country": "Bahrain", "city": "Sakhir", "circuit_name": "Bahrain International Circuit", "lat": 26.0325, "lon": 50.5106, "date": date(2026, 4, 19), "round": 4, "cancelled": True},
             {"name": "Saudi Arabian Grand Prix", "country": "Saudi Arabia", "city": "Jeddah", "circuit_name": "Jeddah Corniche Circuit", "lat": 21.6319, "lon": 39.1044, "date": date(2026, 5, 3), "round": 5, "cancelled": True},
             {"name": "Miami Grand Prix", "country": "USA", "city": "Miami", "circuit_name": "Miami International Autodrome", "lat": 25.9581, "lon": -80.2389, "date": date(2026, 5, 17), "round": 6},
@@ -30,22 +30,33 @@ class CalendarService:
         ]
 
     def get_current_or_next_race(self):
-        today = date.today()
-        # Saltiamo i GP cancellati per la "Next Race" logic
+        # Usiamo l'ora UTC attuale per essere indipendenti dal fuso locale del server
+        now_utc = datetime.now(timezone.utc).date()
+        
+        # Troviamo la prima gara che non è ancora "passata" e non è cancellata.
+        # Una gara è considerata "passata" dal Lunedì successivo alla data della gara.
         for race in self.races:
-            if race["date"] >= today and not race.get("cancelled", False):
+            if now_utc > race["date"]:
+                continue  # Questa gara è finita, passiamo alla prossima
+
+            # Se siamo qui, la gara è oggi o nel futuro.
+            # Se non è cancellata, è la nostra "current or next race".
+            if not race.get("cancelled", False):
                 return race
-        return self.races[-1]
+                
+        # Se la stagione è finita, restituiamo l'ultimo GP disputato e non cancellato
+        valid_races = [r for r in self.races if not r.get("cancelled", False)]
+        return valid_races[-1] if valid_races else self.races[-1]
 
     def get_full_calendar(self):
-        today = date.today()
+        now_utc = datetime.now(timezone.utc).date()
         calendar_data = []
         current_race = self.get_current_or_next_race()
         for race in self.races:
             is_cancelled = race.get("cancelled", False)
             if not is_cancelled and race == current_race:
                 status = "current"
-            elif race["date"] < today:
+            elif race["date"] < now_utc:
                 status = "past"
             else:
                 status = "future"

@@ -4,21 +4,27 @@ import retrofit2.http.GET
 import retrofit2.http.Path
 
 interface F1ApiService {
-    @GET("/api/v1/raceweek/updates")
-    suspend fun getLatestCarUpdates(): List<TeamUpdatesResponse>
-
-    @GET("/api/v1/raceweek/current")
+    @GET("api/v1/raceweek/current")
     suspend fun getCurrentRaceWeek(): RaceWeekResponse
 
-    @GET("/api/v1/calendar")
+    @GET("api/v1/raceweek/updates")
+    suspend fun getLatestCarUpdates(): TeamUpdatesWrapper
+
+    @GET("api/v1/calendar")
     suspend fun getCalendar(): List<CalendarResponse>
 
-    @GET("/api/v1/results/{round_number}")
-    suspend fun getResults(@Path("round_number") roundNumber: Int): List<RaceResultResponse>
+    @GET("api/v1/results/{round_number}")
+    suspend fun getResults(@Path("round_number") round: Int): List<RaceResultResponse>
 
-    @GET("/api/v1/standings/drivers")
+    @GET("api/v1/results/{round_number}/updates")
+    suspend fun getPastGpUpdates(@Path("round_number") round: Int): List<TeamUpdatesResponse>
+
+    @GET("api/v1/standings/drivers")
     suspend fun getDriverStandings(): List<DriverStanding>
 
-    @GET("/api/v1/standings/constructors")
+    @GET("api/v1/standings/constructors")
     suspend fun getConstructorStandings(): List<ConstructorStanding>
+
+    @GET("api/v1/circuit/{round_number}")
+    suspend fun getCircuitDetails(@Path("round_number") round: Int): CircuitDetailResponse
 }

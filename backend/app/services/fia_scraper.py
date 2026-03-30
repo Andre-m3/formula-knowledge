@@ -2,18 +2,45 @@ import fitz  # PyMuPDF
 import requests
 from bs4 import BeautifulSoup
 import io
+import json
+import google.generativeai as genai
+from .calendar_service import CalendarService
 
 class FiaScraperService:
     def __init__(self):
+        self.docs_url = "https://www.fia.com/documents/championships/fia-formula-one-world-championship-14/season/season-2026-2072"
         self.base_url = "https://www.fia.com"
+        # Configurazione Gemini
+        genai.configure(api_key="AIzaSyCHwvpD6Z5d4QQjUoNutmDx0jh6kz1EJ9k")
+        self.model = genai.GenerativeModel('gemini-1.5-flash')
 
-    def extract_text_from_pdf_url(self, pdf_url: str) -> str:
-        """Scarica il PDF al volo e ne estrae il testo usando PyMuPDF."""
+    def find_latest_submissions_pdf(self, gp_name: str) -> str:
+        try:
+            response = requests.get(self.docs_url, timeout=10)
+            if response.status_code != 200:
+                return None
+            
+            soup = BeautifulSoup(response.content, 'html.parser')
+            links = soup.find_all('a', href=True)
+            target_str = f"{gp_name} Grand Prix - Car Presentation Submissions".lower()
+            
+            for link in links:
+                link_text = link.get_text().lower()
+                if target_str in link_text and link['href'].endswith('.pdf'):
+                    pdf_path = link['href']
+                    if not pdf_path.startswith('http'):
+                        return self.base_url + pdf_path
+                    return pdf_path
+            return None
+        except Exception as e:
+            print(f"Errore durante lo scraping FIA: {e}")
+            return None
+
+    def extract_text_from_pdf(self, pdf_url: str) -> str:
         response = requests.get(pdf_url)
         if response.status_code != 200:
-            raise Exception("Impossibile scaricare il PDF")
+            return ""
         
-        # Legge il PDF direttamente dalla memoria senza salvarlo sul disco
         pdf_stream = io.BytesIO(response.content)
         document = fitz.open(stream=pdf_stream, filetype="pdf")
         
@@ -21,39 +48,51 @@ class FiaScraperService:
         for page_num in range(len(document)):
             page = document.load_page(page_num)
             full_text += page.get_text("text")
-            
         return full_text
 
-    def parse_updates_from_text(self, raw_text: str):
+    def parse_with_ai(self, raw_text: str):
+        prompt = f"""
+        Sei un esperto ingegnere aerodinamico di Formula 1. 
+        Analizza il seguente testo estratto da un documento ufficiale FIA "Car Presentation Submissions".
+        Estrai tutti gli aggiornamenti tecnici portati da ogni team.
+        
+        Regole:
+        1. Restituisci i risultati in formato JSON puro.
+        2. Per ogni team, crea un oggetto con 'team_name' e 'updates' (una lista di stringhe).
+        3. Traduci gli aggiornamenti in ITALIANO tecnico ma comprensibile.
+        4. Sii preciso sui componenti (es. 'Ala anteriore', 'Pance', 'Fondo').
+        5. Se un team non ha aggiornamenti ("No changes"), non includerlo.
+
+        Testo da analizzare:
+        {raw_text}
         """
-        QUI INTERVERRÀ L'AI. 
-        Invieremo il raw_text a un LLM (es. OpenAI) chiedendogli di estrarre e tradurre.
-        Per ora, simuliamo il risultato strutturato che l'AI ci restituirà, 
-        esattamente formattato per la UI che hai in mente.
-        """
-        # SIMULAZIONE RISPOSTA AI
-        return [
-            {
-                "team_name": "Scuderia Ferrari HP",
-                "updates": [
-                    "Modifica all'ala anteriore per aumentare il carico aerodinamico nelle curve lente.",
-                    "Nuovo disegno delle pance laterali per migliorare il raffreddamento."
-                ]
-            },
-            {
-                "team_name": "McLaren Mastercard F1 Team",
-                "updates": [
-                    "Fondo vettura completamente ridisegnato per ridurre il porpoising."
-                ]
-            }
-            # Nota: Red Bull e Mercedes non sono in lista perché non hanno portato aggiornamenti!
-        ]
+        
+        try:
+            response = self.model.generate_content(prompt)
+            # Pulizia per estrarre solo il JSON se l'AI aggiunge markdown
+            json_text = response.text.replace("```json", "").replace("```", "").strip()
+            return json.loads(json_text)
+        except Exception as e:
+            print(f"Errore Gemini AI: {e}")
+            return []
 
     def process_latest_car_presentation(self):
-        """Funzione principale che il nostro backend chiamerà ogni venerdì."""
-        # 1. Trovare l'URL del PDF (Simulato per ora)
-        pdf_url = "https://www.fia.com/sites/default/files/decision-document/2024%20Miami%20Grand%20Prix%20-%20Car%20Presentation%20Submissions.pdf"
-        # 2. Estrarre il testo
-        # raw_text = self.extract_text_from_pdf_url(pdf_url)
-        # 3. Parsare e strutturare (Simulato)
-        return self.parse_updates_from_text("testo simulato")
+        calendar = CalendarService()
+        current_race = calendar.get_current_or_next_race()
+        gp_name = current_race["name"].replace(" Grand Prix", "")
+        
+        pdf_url = self.find_latest_submissions_pdf(gp_name)
+        if not pdf_url:
+            return {"status": "not_ready", "gp": gp_name}
+        
+        raw_text = self.extract_text_from_pdf(pdf_url)
+        if not raw_text:
+            return {"status": "not_ready", "gp": gp_name}
+            
+        ai_results = self.parse_with_ai(raw_text)
+        
+        return {
+            "status": "ready",
+            "gp": gp_name,
+            "data": ai_results
+        }

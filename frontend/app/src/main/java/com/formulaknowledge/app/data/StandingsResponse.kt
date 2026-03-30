@@ -11,6 +11,7 @@ data class DriverStanding(
 data class ConstructorStanding(
     val position: Int,
     val constructor_name: String,
+    val chassis_name: String? = null,
     val points: Int,
     val wins: Int
 )

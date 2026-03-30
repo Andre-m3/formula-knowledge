@@ -2,20 +2,21 @@ from sqlalchemy.orm import Session
 from .database import SessionLocal, engine
 from .models import Team, Driver, Race, RaceResult, Base
 from .services.calendar_service import CalendarService
+from datetime import date
 
 # Dati per il seeding (Stagione 2026 - Proiezione)
 TEAMS_DATA = [
-    {"name": "Mercedes-AMG PETRONAS F1 Team", "color_hex": "#00D2BE", "power_unit": "Mercedes"},
-    {"name": "Oracle Red Bull Racing", "color_hex": "#1E41FF", "power_unit": "RedBull-Ford Powertrains"},
-    {"name": "Scuderia Ferrari HP", "color_hex": "#E32219", "power_unit": "Ferrari"},
-    {"name": "McLaren Mastercard F1 Team", "color_hex": "#FF8000", "power_unit": "Mercedes"},
-    {"name": "Aston Martin Aramco F1 Team", "color_hex": "#006F62", "power_unit": "Honda"},
-    {"name": "BWT Alpine F1 Team", "color_hex": "#0090FF", "power_unit": "Mercedes"},
-    {"name": "Atlassian Williams F1 Team", "color_hex": "#005AFF", "power_unit": "Mercedes"},
-    {"name": "Visa Cash App Racing Bulls", "color_hex": "#00359F", "power_unit": "RedBull-Ford Powertrains"},
-    {"name": "Audi Revolut F1 Team", "color_hex": "#A9A9A9", "power_unit": "Audi"},
-    {"name": "TGR Haas F1 Team", "color_hex": "#B6B6B6", "power_unit": "Ferrari"},
-    {"name": "Cadillac F1 Team", "color_hex": "#00008B", "power_unit": "Ferrari"},
+    {"name": "Mercedes-AMG PETRONAS F1 Team", "color_hex": "#00D2BE", "power_unit": "Mercedes", "chassis_name": "W17"},
+    {"name": "Oracle Red Bull Racing", "color_hex": "#1E41FF", "power_unit": "RedBull-Ford Powertrains", "chassis_name": "RB22"},
+    {"name": "Scuderia Ferrari HP", "color_hex": "#E32219", "power_unit": "Ferrari", "chassis_name": "SF-26"},
+    {"name": "McLaren Mastercard F1 Team", "color_hex": "#FF8000", "power_unit": "Mercedes", "chassis_name": "MCL39"},
+    {"name": "Aston Martin Aramco F1 Team", "color_hex": "#006F62", "power_unit": "Honda", "chassis_name": "AMR26"},
+    {"name": "BWT Alpine F1 Team", "color_hex": "#0090FF", "power_unit": "Mercedes", "chassis_name": "A526"},
+    {"name": "Atlassian Williams F1 Team", "color_hex": "#005AFF", "power_unit": "Mercedes", "chassis_name": "FW48"},
+    {"name": "Visa Cash App Racing Bulls", "color_hex": "#00359F", "power_unit": "RedBull-Ford Powertrains", "chassis_name": "VCARB 02"},
+    {"name": "Audi Revolut F1 Team", "color_hex": "#A9A9A9", "power_unit": "Audi", "chassis_name": "F1-01"},
+    {"name": "TGR Haas F1 Team", "color_hex": "#B6B6B6", "power_unit": "Ferrari", "chassis_name": "VF-26"},
+    {"name": "Cadillac F1 Team", "color_hex": "#00008B", "power_unit": "Ferrari", "chassis_name": "C1"},
 ]
 
 DRIVERS_DATA = [
@@ -55,15 +56,12 @@ DRIVERS_DATA = [
 ]
 
 def seed_database():
-    # Assicuriamoci che le tabelle vengano create se il database non esiste
+    # Elimina tabelle esistenti per rifare il seeding con i nuovi campi
+    Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
     
     db: Session = SessionLocal()
     try:
-        if db.query(Team).count() > 0:
-            print("Database già popolato. Salto il seeding.")
-            return
-
         print("Popolamento tabella Teams...")
         team_map = {}
         for team_data in TEAMS_DATA:
@@ -79,37 +77,26 @@ def seed_database():
             db.add(driver)
 
         print("Popolamento tabella Races...")
-        for race_data in CalendarService().races:
-            race = Race(round_number=race_data["round"], name=race_data["name"], date=race_data["date"], country=race_data["country"], city=race_data["city"])
+        calendar_service = CalendarService()
+        for race_data in calendar_service.races:
+            # Mocking alcuni dati circuiti
+            race = Race(
+                round_number=race_data["round"],
+                name=race_data["name"],
+                date=race_data["date"],
+                country=race_data["country"],
+                city=race_data["city"],
+                circuit_name=race_data.get("circuit_name"),
+                laps=58 if "Australia" in race_data["name"] else 56,
+                circuit_length="5.303 km" if "Australia" in race_data["name"] else "5.451 km",
+                lap_record="1:20.235 (Sergio Perez, 2024)" if "Australia" in race_data["name"] else "1:32.238 (Max Verstappen, 2024)",
+                is_sprint=race_data["round"] in [2, 6, 11, 18, 19, 22],
+                cancelled=race_data.get("cancelled", False)
+            )
             db.add(race)
 
-        db.flush() # Salva temporaneamente per avere gli ID generati
+        db.flush()
         
-        print("Popolamento tabella RaceResults (Round 1 & 2)...")
-        def get_driver_id(last_name):
-            return db.query(Driver).filter(Driver.last_name == last_name).first().id
-            
-        race1 = db.query(Race).filter(Race.round_number == 1).first()
-        race2 = db.query(Race).filter(Race.round_number == 2).first()
-        
-        if race1 and race2:
-            mock_race_results = [
-                # ROUND 1 - Australia
-                {"race_id": race1.id, "driver_id": get_driver_id("Leclerc"), "position": 1, "points": 25, "time_str": "1:32:41.432"},
-                {"race_id": race1.id, "driver_id": get_driver_id("Hamilton"), "position": 2, "points": 18, "time_str": "+2.431s"},
-                {"race_id": race1.id, "driver_id": get_driver_id("Norris"), "position": 3, "points": 15, "time_str": "+5.672s"},
-                {"race_id": race1.id, "driver_id": get_driver_id("Verstappen"), "position": 4, "points": 12, "time_str": "+10.123s"},
-                {"race_id": race1.id, "driver_id": get_driver_id("Russell"), "position": 5, "points": 10, "time_str": "+15.432s"},
-                # ROUND 2 - Cina
-                {"race_id": race2.id, "driver_id": get_driver_id("Verstappen"), "position": 1, "points": 25, "time_str": "1:29:11.111"},
-                {"race_id": race2.id, "driver_id": get_driver_id("Russell"), "position": 2, "points": 18, "time_str": "+11.222s"},
-                {"race_id": race2.id, "driver_id": get_driver_id("Leclerc"), "position": 3, "points": 15, "time_str": "+15.333s"},
-                {"race_id": race2.id, "driver_id": get_driver_id("Norris"), "position": 4, "points": 12, "time_str": "+16.444s"},
-                {"race_id": race2.id, "driver_id": get_driver_id("Hamilton"), "position": 5, "points": 10, "time_str": "+22.555s"},
-            ]
-            for res_data in mock_race_results:
-                db.add(RaceResult(**res_data))
-
         db.commit()
         print("Database popolato con successo!")
 
@@ -120,5 +107,4 @@ def seed_database():
         db.close()
 
 if __name__ == "__main__":
-    print("Avvio del processo di seeding del database...")
     seed_database()

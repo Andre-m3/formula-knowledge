@@ -30,3 +30,16 @@ data class DailyForecast(
     val wind: String,
     val rain_probability: String
 )
+
+data class CircuitDetailResponse(
+    val round: Int,
+    val gp_name: String,
+    val circuit_name: String,
+    val location: String,
+    val length: String,
+    val laps: Int,
+    val record: String,
+    val is_sprint: Boolean,
+    val dates: List<String>, // AGGIUNTO
+    val status: String       // AGGIUNTO
+)
