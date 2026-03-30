@@ -2,6 +2,8 @@ package com.formulaknowledge.app.data
 
 import kotlinx.coroutines.flow.Flow
 import com.google.gson.Gson
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 
 class FormulaRepository(private val database: FormulaDatabase) {
 
@@ -75,6 +77,16 @@ class FormulaRepository(private val database: FormulaDatabase) {
                 )
             }
             generalDao.updateCalendar(entities)
+
+            // Pre-fetch silente dei dettagli e dei risultati per le gare passate/correnti
+            coroutineScope {
+                entities.filter { it.is_clickable }.forEach { race ->
+                    launch {
+                        refreshCircuitDetail(race.round)
+                        if (race.status == "past") refreshRaceResults(race.round)
+                    }
+                }
+            }
         } catch (e: Exception) {}
     }
 
