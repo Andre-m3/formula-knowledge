@@ -1,10 +1,13 @@
 package com.formulaknowledge.app.data
 
 import kotlinx.coroutines.flow.Flow
+import com.google.gson.Gson
 
 class FormulaRepository(private val database: FormulaDatabase) {
 
     private val dao = database.standingsDao()
+    private val raceDao = database.raceDao()
+    private val generalDao = database.generalDao()
 
     // I Flow sono dei "canali aperti" con il database:
     // appena il DB si aggiorna, la UI riceve i nuovi dati in automatico!
@@ -33,5 +36,57 @@ class FormulaRepository(private val database: FormulaDatabase) {
             // Se c'è un errore (es. nessuna connessione WiFi), lo ignoriamo!
             // L'utente continuerà felicemente a visualizzare i dati salvati in locale nel DB.
         }
+    }
+
+    fun getCircuitDetail(round: Int): Flow<CircuitDetailEntity?> = raceDao.getCircuitDetail(round)
+    
+    fun getRaceResults(round: Int): Flow<List<RaceResultEntity>> = raceDao.getRaceResults(round)
+
+    suspend fun refreshCircuitDetail(round: Int) {
+        try {
+            val apiData = RetrofitClient.apiService.getCircuitDetails(round)
+            val entity = CircuitDetailEntity(
+                apiData.round, apiData.gp_name, apiData.circuit_name, apiData.location,
+                apiData.length, apiData.laps, apiData.record, apiData.is_sprint,
+                apiData.dates.joinToString(","), apiData.status
+            )
+            raceDao.insertCircuitDetail(entity)
+        } catch (e: Exception) {}
+    }
+
+    suspend fun refreshRaceResults(round: Int) {
+        try {
+            val apiData = RetrofitClient.apiService.getResults(round)
+            val entities = apiData.map { RaceResultEntity(0, round, it.position, it.driver, it.team, it.points, it.time) }
+            raceDao.updateRaceResults(round, entities)
+        } catch (e: Exception) {}
+    }
+
+    val calendar: Flow<List<CalendarEntity>> = generalDao.getCalendar()
+    val currentRaceWeek: Flow<RaceWeekEntity?> = generalDao.getCurrentRaceWeek()
+
+    suspend fun refreshCalendar() {
+        try {
+            val apiData = RetrofitClient.apiService.getCalendar()
+            val entities = apiData.map {
+                CalendarEntity(
+                    it.round, it.name, it.country, it.city, it.circuit_name,
+                    it.date, it.status, it.is_clickable, it.cancelled ?: false
+                )
+            }
+            generalDao.updateCalendar(entities)
+        } catch (e: Exception) {}
+    }
+
+    suspend fun refreshCurrentRaceWeek() {
+        try {
+            val apiData = RetrofitClient.apiService.getCurrentRaceWeek()
+            val weatherJson = Gson().toJson(apiData.weather_forecast)
+            val entity = RaceWeekEntity(
+                1, apiData.gp_name, apiData.country, apiData.city, apiData.circuit_name,
+                apiData.round_number, apiData.is_sprint, apiData.dates.joinToString(","), weatherJson
+            )
+            generalDao.insertRaceWeek(entity)
+        } catch (e: Exception) {}
     }
 }

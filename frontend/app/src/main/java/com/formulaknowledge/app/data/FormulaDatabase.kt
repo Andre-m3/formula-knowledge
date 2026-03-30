@@ -24,6 +24,57 @@ data class ConstructorStandingEntity(
     val wins: Int
 )
 
+@Entity(tableName = "circuit_details")
+data class CircuitDetailEntity(
+    @PrimaryKey val round: Int,
+    val gp_name: String,
+    val circuit_name: String,
+    val location: String,
+    val length: String,
+    val laps: Int,
+    val record: String,
+    val is_sprint: Boolean,
+    val dates_joined: String,
+    val status: String
+)
+
+@Entity(tableName = "race_results")
+data class RaceResultEntity(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val round_number: Int,
+    val position: Int,
+    val driver: String,
+    val team: String,
+    val points: Int,
+    val time: String
+)
+
+@Entity(tableName = "calendar_entries")
+data class CalendarEntity(
+    @PrimaryKey val round: Int,
+    val name: String,
+    val country: String,
+    val city: String,
+    val circuit_name: String?,
+    val date: String,
+    val status: String,
+    val is_clickable: Boolean,
+    val cancelled: Boolean
+)
+
+@Entity(tableName = "current_raceweek")
+data class RaceWeekEntity(
+    @PrimaryKey val id: Int = 1,
+    val gp_name: String,
+    val country: String,
+    val city: String,
+    val circuit_name: String?,
+    val round_number: Int,
+    val is_sprint: Boolean,
+    val dates_joined: String,
+    val weather_json: String? // Salviamo il meteo convertito in testo
+)
+
 // --- 2. DAOs (Data Access Objects) ---
 
 @Dao
@@ -60,15 +111,65 @@ interface StandingsDao {
     }
 }
 
+@Dao
+interface RaceDao {
+    @Query("SELECT * FROM circuit_details WHERE round = :round")
+    fun getCircuitDetail(round: Int): Flow<CircuitDetailEntity?>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertCircuitDetail(circuit: CircuitDetailEntity)
+
+    @Query("SELECT * FROM race_results WHERE round_number = :round ORDER BY position ASC")
+    fun getRaceResults(round: Int): Flow<List<RaceResultEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertRaceResults(results: List<RaceResultEntity>)
+
+    @Query("DELETE FROM race_results WHERE round_number = :round")
+    suspend fun clearRaceResults(round: Int)
+
+    @Transaction
+    suspend fun updateRaceResults(round: Int, results: List<RaceResultEntity>) {
+        clearRaceResults(round)
+        insertRaceResults(results)
+    }
+}
+
+@Dao
+interface GeneralDao {
+    @Query("SELECT * FROM calendar_entries ORDER BY round ASC")
+    fun getCalendar(): Flow<List<CalendarEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertCalendar(entries: List<CalendarEntity>)
+
+    @Query("DELETE FROM calendar_entries")
+    suspend fun clearCalendar()
+
+    @Transaction
+    suspend fun updateCalendar(entries: List<CalendarEntity>) {
+        clearCalendar()
+        insertCalendar(entries)
+    }
+
+    @Query("SELECT * FROM current_raceweek WHERE id = 1")
+    fun getCurrentRaceWeek(): Flow<RaceWeekEntity?>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertRaceWeek(raceWeek: RaceWeekEntity)
+}
+
 // --- 3. DATABASE (Il motore Room) ---
 
 @Database(
-    entities = [DriverStandingEntity::class, ConstructorStandingEntity::class],
-    version = 1,
+    entities = [DriverStandingEntity::class, ConstructorStandingEntity::class, CircuitDetailEntity::class, RaceResultEntity::class, CalendarEntity::class, RaceWeekEntity::class],
+    version = 3,
     exportSchema = false
 )
 abstract class FormulaDatabase : RoomDatabase() {
     abstract fun standingsDao(): StandingsDao
+    abstract fun raceDao(): RaceDao
+    abstract fun generalDao(): GeneralDao
 
     companion object {
         @Volatile
@@ -80,7 +181,9 @@ abstract class FormulaDatabase : RoomDatabase() {
                     context.applicationContext,
                     FormulaDatabase::class.java,
                     "formula_knowledge_db"
-                ).build()
+                )
+                .fallbackToDestructiveMigration()
+                .build()
                 INSTANCE = instance
                 instance
             }

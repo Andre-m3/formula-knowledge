@@ -32,6 +32,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -47,21 +48,24 @@ val AppBackgroundGradientColor = Color(0xFF0B0E14)
 
 @Composable
 fun UpdatesScreen() {
-    val mockRaceWeek = RaceWeekResponse(
-        gp_name = "Japanese",
-        country = "Japan",
-        city = "Suzuka",
-        circuit_name = "Suzuka International Racing Course",
-        round_number = 3,
-        is_sprint = false,
-        dates = listOf("03 Apr", "04 Apr", "05 Apr"),
-        weather_forecast = WeatherForecast("Partly Cloudy", "22°C", "82%", "22°C", "7km/h", "Low", "10%", emptyList())
-    )
+    val context = LocalContext.current
+    val database = remember { FormulaDatabase.getDatabase(context) }
+    val repository = remember { FormulaRepository(database) }
+
+    val raceWeekEntity by repository.currentRaceWeek.collectAsState(initial = null)
+    val raceWeek = raceWeekEntity?.let { entity ->
+        val weather = entity.weather_json?.let { json ->
+            try {
+                com.google.gson.Gson().fromJson(json, WeatherForecast::class.java)
+            } catch (e: Exception) { null }
+        }
+        RaceWeekResponse(
+            entity.gp_name, entity.country, entity.city, entity.circuit_name,
+            entity.round_number, entity.is_sprint, entity.dates_joined.split(","), weather
+        )
+    }
 
     var updatesWrapper by remember { mutableStateOf<TeamUpdatesWrapper?>(null) }
-    var raceWeek by remember { mutableStateOf<RaceWeekResponse?>(mockRaceWeek) }
-    var cachedDrivers by remember { mutableStateOf<List<DriverStanding>>(emptyList()) }
-    var cachedConstructors by remember { mutableStateOf<List<ConstructorStanding>>(emptyList()) }
 
     var isLoadingUpdates by remember { mutableStateOf(false) }
     var currentScreen by remember { mutableStateOf(AppScreen.HOME) }
@@ -105,20 +109,17 @@ fun UpdatesScreen() {
     }
 
     LaunchedEffect(Unit) {
+        launch { repository.refreshCurrentRaceWeek() }
+        
         try {
-            Log.d("API_CALL", "Requesting Current Race Week...")
-            val rw = RetrofitClient.apiService.getCurrentRaceWeek()
-            raceWeek = rw
-            Log.d("API_CALL", "Success: ${rw.gp_name}")
-            
             isLoadingUpdates = true
             Log.d("API_CALL", "Requesting Car Updates...")
             val wrapper = RetrofitClient.apiService.getLatestCarUpdates()
             updatesWrapper = wrapper
-            isLoadingUpdates = false
             Log.d("API_CALL", "Success: ${wrapper.gp} updates loaded")
         } catch (e: Exception) { 
             Log.e("API_ERROR", "Error during initial data fetch: ${e.message}", e)
+        } finally {
             isLoadingUpdates = false
         }
     }
@@ -140,7 +141,7 @@ fun UpdatesScreen() {
                 label = "ScreenTransition"
             ) { targetScreen ->
                 when (targetScreen) {
-                    AppScreen.HOME -> HomeScreen(raceWeek, false, onNavigate = { 
+                    AppScreen.HOME -> HomeScreen(raceWeek, raceWeek == null, onNavigate = { 
                         if (it == AppScreen.UPDATES_LIST && updatesWrapper?.status == "not_ready") {
                             showNotReadyDialog = true
                         } else {
@@ -168,9 +169,6 @@ fun UpdatesScreen() {
                         currentScreen = AppScreen.DRIVER_DETAIL
                     })
                     AppScreen.STANDINGS -> StandingsScreen(
-                        drivers = cachedDrivers,
-                        constructors = cachedConstructors,
-                        onDataLoaded = { d, c -> cachedDrivers = d; cachedConstructors = c },
                         onDriverClick = { name ->
                             selectedDriverName = name
                             currentScreen = AppScreen.DRIVER_DETAIL
@@ -248,16 +246,23 @@ fun UpdatesScreen() {
 
 @Composable
 fun CircuitDetailScreen(round: Int, onNavigateToResults: (Int, String) -> Unit) {
-    var circuitData by remember { mutableStateOf<CircuitDetailResponse?>(null) }
-    var isLoading by remember { mutableStateOf(true) }
+    val context = LocalContext.current
+    val database = remember { FormulaDatabase.getDatabase(context) }
+    val repository = remember { FormulaRepository(database) }
+
+    val circuitEntity by repository.getCircuitDetail(round).collectAsState(initial = null)
+    val circuitData = circuitEntity?.let {
+        CircuitDetailResponse(
+            it.round, it.gp_name, it.circuit_name, it.location,
+            it.length, it.laps, it.record, it.is_sprint,
+            it.dates_joined.split(","), it.status
+        )
+    }
+    
+    val isLoading = circuitData == null
 
     LaunchedEffect(round) {
-        try {
-            isLoading = true
-            circuitData = RetrofitClient.apiService.getCircuitDetails(round)
-        } catch (e: Exception) { } finally {
-            isLoading = false
-        }
+        repository.refreshCircuitDetail(round)
     }
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
@@ -355,13 +360,22 @@ fun DriverDetailScreen(driverName: String) {
 
 @Composable
 fun StandingsScreen(
-    drivers: List<DriverStanding>,
-    constructors: List<ConstructorStanding>,
-    onDataLoaded: (List<DriverStanding>, List<ConstructorStanding>) -> Unit,
     onDriverClick: (String) -> Unit = {}
 ) {
+    val context = LocalContext.current
+    val database = remember { FormulaDatabase.getDatabase(context) }
+    val repository = remember { FormulaRepository(database) }
+
+    // Osserviamo il database in tempo reale (Flow -> State)
+    val driverEntities by repository.driverStandings.collectAsState(initial = emptyList())
+    val constructorEntities by repository.constructorStandings.collectAsState(initial = emptyList())
+
+    // Mappiamo le Entities del DB ai modelli UI
+    val drivers = driverEntities.map { DriverStanding(it.position, it.driver_name, it.constructor_name, it.points, it.wins) }
+    val constructors = constructorEntities.map { ConstructorStanding(it.position, it.constructor_name, it.chassis_name, it.points, it.wins) }
+
     var selectedTab by remember { mutableStateOf("Drivers") }
-    var isLoading by remember { mutableStateOf(drivers.isEmpty()) }
+    val isLoading = drivers.isEmpty() && constructors.isEmpty()
     
     var swipeOffset by remember { mutableFloatStateOf(0f) }
     val dragModifier = Modifier.draggable(
@@ -380,20 +394,9 @@ fun StandingsScreen(
     )
 
     LaunchedEffect(Unit) {
-        if (drivers.isEmpty()) {
-            try {
-                isLoading = true
-                Log.d("API_CALL", "Requesting Standings...")
-                val d = RetrofitClient.apiService.getDriverStandings()
-                val c = RetrofitClient.apiService.getConstructorStandings()
-                onDataLoaded(d, c)
-                Log.d("API_CALL", "Standings loaded successfully")
-            } catch (e: Exception) { 
-                Log.e("API_ERROR", "Error loading standings: ${e.message}")
-            } finally {
-                isLoading = false
-            }
-        }
+        // Chiediamo al repository di scaricare dati freschi in background.
+        // Se non c'è internet, la UI continua felicemente a mostrare i dati del DB!
+        repository.refreshStandings()
     }
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp).then(dragModifier)) {

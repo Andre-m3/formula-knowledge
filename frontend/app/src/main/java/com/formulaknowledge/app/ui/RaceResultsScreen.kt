@@ -21,6 +21,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.buildAnnotatedString
@@ -30,7 +31,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.formulaknowledge.app.data.RaceResultResponse
-import com.formulaknowledge.app.data.RetrofitClient
+import com.formulaknowledge.app.data.FormulaDatabase
+import com.formulaknowledge.app.data.FormulaRepository
 
 @Composable
 fun RaceResultsScreen(
@@ -38,18 +40,17 @@ fun RaceResultsScreen(
     gpName: String,
     onDriverClick: (String) -> Unit = {}
 ) {
-    var results by remember { mutableStateOf<List<RaceResultResponse>>(emptyList()) }
-    var isLoading by remember { mutableStateOf(true) }
+    val context = LocalContext.current
+    val database = remember { FormulaDatabase.getDatabase(context) }
+    val repository = remember { FormulaRepository(database) }
+
+    val resultsEntities by repository.getRaceResults(roundNumber).collectAsState(initial = emptyList())
+    val results = resultsEntities.map { RaceResultResponse(it.position, it.driver, it.team, it.points, it.time) }
+    
+    val isLoading = results.isEmpty()
 
     LaunchedEffect(roundNumber) {
-        try {
-            isLoading = true
-            val updatedResults = RetrofitClient.apiService.getResults(roundNumber)
-            results = updatedResults
-        } catch (e: Exception) {
-        } finally {
-            isLoading = false
-        }
+        repository.refreshRaceResults(roundNumber)
     }
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp)) {

@@ -20,6 +20,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.formulaknowledge.app.data.RetrofitClient
 import com.formulaknowledge.app.data.CalendarResponse
+import androidx.compose.ui.platform.LocalContext
+import com.formulaknowledge.app.data.FormulaDatabase
+import com.formulaknowledge.app.data.FormulaRepository
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
@@ -29,42 +32,20 @@ fun CalendarScreen(
     onNavigateToResults: (Int, String) -> Unit,
     onNavigateToCircuit: (Int) -> Unit
 ) {
-    // Lista completa 2026 come fallback locale
-    val full2026Calendar = listOf(
-        CalendarResponse("Australian Grand Prix", "Australia", "Melbourne", "Albert Park Circuit", "2026-03-01", 1, "past", true),
-        CalendarResponse("Chinese Grand Prix", "China", "Shanghai", "Shanghai International Circuit", "2026-03-22", 2, "past", true),
-        CalendarResponse("Japanese Grand Prix", "Japan", "Suzuka", "Suzuka International Racing Course", "2026-04-05", 3, "current", true),
-        CalendarResponse("Bahrain Grand Prix", "Bahrain", "Sakhir", "Bahrain International Circuit", "2026-04-19", 4, "future", false, true),
-        CalendarResponse("Saudi Arabian Grand Prix", "Saudi Arabia", "Jeddah", "Jeddah Corniche Circuit", "2026-05-03", 5, "future", false, true),
-        CalendarResponse("Miami Grand Prix", "USA", "Miami", "Miami International Autodrome", "2026-05-17", 6, "future", false),
-        CalendarResponse("Emilia Romagna Grand Prix", "Italy", "Imola", "Autodromo Enzo e Dino Ferrari", "2026-05-31", 7, "future", false),
-        CalendarResponse("Monaco Grand Prix", "Monaco", "Monte Carlo", "Circuit de Monaco", "2026-06-07", 8, "future", false),
-        CalendarResponse("Spanish Grand Prix", "Spain", "Barcelona", "Circuit de Barcelona-Catalunya", "2026-06-21", 9, "future", false),
-        CalendarResponse("Canadian Grand Prix", "Canada", "Montreal", "Circuit Gilles Villeneuve", "2026-07-05", 10, "future", false),
-        CalendarResponse("Austrian Grand Prix", "Austria", "Spielberg", "Red Bull Ring", "2026-07-19", 11, "future", false),
-        CalendarResponse("British Grand Prix", "UK", "Silverstone", "Silverstone Circuit", "2026-08-02", 12, "future", false),
-        CalendarResponse("Belgian Grand Prix", "Belgium", "Spa", "Circuit de Spa-Francorchamps", "2026-08-30", 13, "future", false),
-        CalendarResponse("Dutch Grand Prix", "Netherlands", "Zandvoort", "Circuit Zandvoort", "2026-09-06", 14, "future", false),
-        CalendarResponse("Italian Grand Prix", "Italy", "Monza", "Autodromo Nazionale Monza", "2026-09-20", 15, "future", false),
-        CalendarResponse("Azerbaijan Grand Prix", "Azerbaijan", "Baku", "Baku City Circuit", "2026-10-04", 16, "future", false),
-        CalendarResponse("Singapore Grand Prix", "Singapore", "Marina Bay", "Marina Bay Street Circuit", "2026-10-18", 17, "future", false),
-        CalendarResponse("United States Grand Prix", "USA", "Austin", "Circuit of the Americas", "2026-11-01", 18, "future", false),
-        CalendarResponse("Mexico City Grand Prix", "Mexico", "Mexico City", "Autódromo Hermanos Rodríguez", "2026-11-08", 19, "future", false),
-        CalendarResponse("São Paulo Grand Prix", "Brazil", "Interlagos", "Autódromo José Carlos Pace", "2026-11-22", 20, "future", false),
-        CalendarResponse("Las Vegas Grand Prix", "USA", "Las Vegas", "Las Vegas Strip Circuit", "2026-12-05", 21, "future", false),
-        CalendarResponse("Qatar Grand Prix", "Qatar", "Lusail", "Lusail International Circuit", "2026-12-13", 22, "future", false),
-        CalendarResponse("Abu Dhabi Grand Prix", "UAE", "Yas Marina", "Yas Marina Circuit", "2026-12-20", 23, "future", false)
-    )
+    val context = LocalContext.current
+    val database = remember { FormulaDatabase.getDatabase(context) }
+    val repository = remember { FormulaRepository(database) }
 
-    var calendarItems by remember { mutableStateOf<List<CalendarResponse>>(full2026Calendar) }
+    val calendarEntities by repository.calendar.collectAsState(initial = emptyList())
+    val calendarItems = calendarEntities.map {
+        CalendarResponse(
+            it.name, it.country, it.city, it.circuit_name,
+            it.date, it.round, it.status, it.is_clickable, it.cancelled
+        )
+    }
 
     LaunchedEffect(Unit) {
-        try {
-            val updatedCalendar = RetrofitClient.apiService.getCalendar()
-            if (updatedCalendar.isNotEmpty()) {
-                calendarItems = updatedCalendar
-            }
-        } catch (e: Exception) { }
+        repository.refreshCalendar()
     }
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
