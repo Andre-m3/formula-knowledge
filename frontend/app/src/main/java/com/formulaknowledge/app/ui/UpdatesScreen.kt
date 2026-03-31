@@ -13,6 +13,7 @@ import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -33,6 +34,7 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -255,7 +257,8 @@ fun CircuitDetailScreen(round: Int, onNavigateToResults: (Int, String) -> Unit) 
         CircuitDetailResponse(
             it.round, it.gp_name, it.circuit_name, it.location,
             it.length, it.laps, it.record, it.is_sprint,
-            it.dates_joined.split(","), it.status
+            it.dates_joined.split(","), it.status,
+            it.previous_winner, it.most_wins, it.most_poles
         )
     }
     
@@ -285,7 +288,17 @@ fun CircuitDetailScreen(round: Int, onNavigateToResults: (Int, String) -> Unit) 
                         }
                         
                         val rawGpName = data.gp_name.uppercase().replace("GRAND PRIX", "").trim()
-                        Text(text = "$rawGpName GP", color = Color.White, fontSize = 58.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic, letterSpacing = (-5).sp, lineHeight = 64.sp)
+                        val displayGpName = "$rawGpName GP"
+                        val gpNameFontSize = when {
+                            displayGpName.length > 18 -> 34.sp
+                            displayGpName.length > 13 -> 44.sp
+                            else -> 58.sp
+                        }
+                        val gpNameLetterSpacing = if (displayGpName.length > 13) (-2).sp else (-5).sp
+
+                        Text(
+                            text = displayGpName, color = Color.White, fontSize = gpNameFontSize, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic, letterSpacing = gpNameLetterSpacing, maxLines = 1, overflow = TextOverflow.Visible
+                        )
                         
                         val dates = data.dates
                         val dateRangeStr = if (dates.size >= 3) {
@@ -294,18 +307,56 @@ fun CircuitDetailScreen(round: Int, onNavigateToResults: (Int, String) -> Unit) 
                             val month = dates[2].substringAfter(" ").uppercase()
                             "$startDay-$endDay $month"
                         } else { "" }
-                        
-                        Text(text = "$dateRangeStr \u2022 ${data.location.uppercase()}", color = Color(0xFF00FFCC), fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.offset(y = (-4).dp))
+
+                        Text(text = "$dateRangeStr \u2022 ${data.location.uppercase()}", color = Color(0xFF00FFCC), fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.offset(y = (-4).dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
 
-                Spacer(modifier = Modifier.height(26.dp))
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // BOX PER IL LAYOUT DEL CIRCUITO (SVG) CHE AGGIUNGEREMO DOPO
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(180.dp)
+                        .background(Color.White.copy(alpha = 0.02f), RoundedCornerShape(20.dp))
+                        .border(1.dp, Color.White.copy(alpha = 0.05f), RoundedCornerShape(20.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    // Carichiamo dinamicamente il layout del tracciato
+                    val resourceName = "track_r${data.round}"
+                    val resourceId = remember(resourceName) {
+                        context.resources.getIdentifier(resourceName, "drawable", context.packageName)
+                    }
+
+                    if (resourceId != 0) {
+                        Image(
+                            painter = painterResource(id = resourceId),
+                            contentDescription = "Layout del tracciato di ${data.circuit_name}",
+                            modifier = Modifier.fillMaxSize().padding(24.dp),
+                            colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(Color(0xFF00FFCC).copy(alpha = 0.8f))
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.Map,
+                            contentDescription = "Layout del tracciato non disponibile",
+                            modifier = Modifier.size(80.dp),
+                            tint = Color.White.copy(alpha = 0.3f)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
 
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(14.dp), contentPadding = PaddingValues(bottom = 120.dp)) {
-                    item { CircuitTechnicalCard("CIRCUIT NAME", data.circuit_name.uppercase()) }
-                    item { CircuitTechnicalCard("TRACK LENGTH", data.length) }
-                    item { CircuitTechnicalCard("RACE DISTANCE", "${data.laps} LAPS") }
-                    item { CircuitTechnicalCard("LAP RECORD", data.record) }
+                    item { 
+                        Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                            Box(modifier = Modifier.weight(1f)) { CircuitTechnicalCard("TRACK LENGTH", data.length) }
+                            Box(modifier = Modifier.weight(1f)) { CircuitTechnicalCard("RACE DISTANCE", "${data.laps} LAPS") }
+                        }
+                    }
+                    
+                    item { HistoricalDataCard(data) }
                     
                     if (data.status == "past") {
                         item {
@@ -340,8 +391,39 @@ fun CircuitTechnicalCard(label: String, value: String) {
     ) {
         Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
             Text(text = label, color = Color(0xFF00FFCC), fontSize = 11.sp, fontWeight = FontWeight.Black, letterSpacing = 1.2.sp)
-            Text(text = value, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold)
+            Text(text = value, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
+    }
+}
+
+@Composable
+fun HistoricalDataCard(data: CircuitDetailResponse) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        color = Color(0xFF1E0A0A).copy(alpha = 0.6f),
+        border = BorderStroke(1.dp, Color(0xFF00FFCC).copy(alpha = 0.3f))
+    ) {
+        Column(modifier = Modifier.padding(20.dp)) {
+            Text(text = "HISTORICAL DATA", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic)
+            Spacer(modifier = Modifier.height(16.dp))
+            
+            HistoricalRow("LAP RECORD", data.record)
+            HorizontalDivider(color = Color.White.copy(alpha = 0.05f), modifier = Modifier.padding(vertical = 12.dp))
+            HistoricalRow("PREVIOUS WINNER", data.previous_winner)
+            HorizontalDivider(color = Color.White.copy(alpha = 0.05f), modifier = Modifier.padding(vertical = 12.dp))
+            HistoricalRow("MOST WINS", data.most_wins)
+            HorizontalDivider(color = Color.White.copy(alpha = 0.05f), modifier = Modifier.padding(vertical = 12.dp))
+            HistoricalRow("MOST POLES", data.most_poles)
+        }
+    }
+}
+
+@Composable
+fun HistoricalRow(label: String, value: String) {
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+        Text(text = label, color = Color.White.copy(alpha = 0.5f), fontSize = 12.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
+        Text(text = value.uppercase(), color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.ExtraBold, textAlign = TextAlign.End, modifier = Modifier.weight(1f).padding(start = 16.dp))
     }
 }
 
@@ -562,6 +644,13 @@ fun HomeScreen(raceWeek: RaceWeekResponse?, isLoading: Boolean, onNavigate: (App
                 Column {
                     val rawGpName = raceWeek?.gp_name?.uppercase()?.replace("GRAND PRIX", "")?.trim() ?: "JAPANESE"
                     val displayGpName = "$rawGpName GP"
+
+                    val gpNameFontSize = when {
+                        displayGpName.length > 18 -> 34.sp
+                        displayGpName.length > 13 -> 44.sp
+                        else -> 58.sp
+                    }
+                    val gpNameLetterSpacing = if (displayGpName.length > 13) (-2).sp else (-5).sp
                     
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Surface(color = Color(0xFF00FFCC), shape = RoundedCornerShape(4.dp)) {
@@ -570,7 +659,7 @@ fun HomeScreen(raceWeek: RaceWeekResponse?, isLoading: Boolean, onNavigate: (App
                         Spacer(modifier = Modifier.width(10.dp))
                         Text(text = "NEXT EVENT", color = Color.White.copy(alpha = 0.5f), fontSize = 16.sp, fontWeight = FontWeight.Bold)
                     }
-                    Text(text = displayGpName, color = Color.White, fontSize = 58.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic, letterSpacing = (-5).sp, lineHeight = 64.sp, maxLines = 1, overflow = TextOverflow.Clip)
+                    Text(text = displayGpName, color = Color.White, fontSize = gpNameFontSize, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic, letterSpacing = gpNameLetterSpacing, maxLines = 1, overflow = TextOverflow.Visible)
                     
                     Spacer(modifier = Modifier.height(8.dp))
                     

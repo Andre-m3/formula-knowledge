@@ -35,7 +35,10 @@ data class CircuitDetailEntity(
     val record: String,
     val is_sprint: Boolean,
     val dates_joined: String,
-    val status: String
+    val status: String,
+    val previous_winner: String,
+    val most_wins: String,
+    val most_poles: String
 )
 
 @Entity(tableName = "race_results")
@@ -163,7 +166,7 @@ interface GeneralDao {
 
 @Database(
     entities = [DriverStandingEntity::class, ConstructorStandingEntity::class, CircuitDetailEntity::class, RaceResultEntity::class, CalendarEntity::class, RaceWeekEntity::class],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class FormulaDatabase : RoomDatabase() {

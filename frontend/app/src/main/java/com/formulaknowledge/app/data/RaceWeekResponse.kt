@@ -41,5 +41,8 @@ data class CircuitDetailResponse(
     val record: String,
     val is_sprint: Boolean,
     val dates: List<String>, // AGGIUNTO
-    val status: String       // AGGIUNTO
+    val status: String,      // AGGIUNTO
+    val previous_winner: String,
+    val most_wins: String,
+    val most_poles: String
 )

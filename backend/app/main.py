@@ -99,6 +99,9 @@ class CircuitDetailResponse(BaseModel):
     is_sprint: bool
     dates: List[str]
     status: str
+    previous_winner: str
+    most_wins: str
+    most_poles: str
 
 # --- ENDPOINTS ---
 
@@ -158,7 +161,10 @@ def get_circuit_details(round_number: int, db: Session = Depends(database.get_db
         "record": race.lap_record or "N/A",
         "is_sprint": race.is_sprint,
         "dates": dates_list,
-        "status": status
+        "status": status,
+        "previous_winner": "Max Verstappen (2025)", # Dati temporanei mockati
+        "most_wins": "Michael Schumacher (5)",     # Dati temporanei mockati
+        "most_poles": "Ayrton Senna (6)"           # Dati temporanei mockati
     }
 
 @app.get("/api/v1/results/{round_number}", response_model=List[RaceResultResponseSchema])

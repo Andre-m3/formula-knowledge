@@ -10,7 +10,7 @@ class CalendarService:
             {"name": "Bahrain Grand Prix", "country": "Bahrain", "city": "Sakhir", "circuit_name": "Bahrain International Circuit", "lat": 26.0325, "lon": 50.5106, "date": date(2026, 4, 19), "round": 4, "cancelled": True},
             {"name": "Saudi Arabian Grand Prix", "country": "Saudi Arabia", "city": "Jeddah", "circuit_name": "Jeddah Corniche Circuit", "lat": 21.6319, "lon": 39.1044, "date": date(2026, 5, 3), "round": 5, "cancelled": True},
             {"name": "Miami Grand Prix", "country": "USA", "city": "Miami", "circuit_name": "Miami International Autodrome", "lat": 25.9581, "lon": -80.2389, "date": date(2026, 5, 17), "round": 6},
-            {"name": "Emilia Romagna Grand Prix", "country": "Italy", "city": "Imola", "circuit_name": "Autodromo Enzo e Dino Ferrari", "lat": 44.3439, "lon": 11.7167, "date": date(2026, 5, 31), "round": 7},
+            {"name": "Imola Grand Prix", "country": "Italy", "city": "Imola", "circuit_name": "Autodromo Enzo e Dino Ferrari", "lat": 44.3439, "lon": 11.7167, "date": date(2026, 5, 31), "round": 7},
             {"name": "Monaco Grand Prix", "country": "Monaco", "city": "Monte Carlo", "circuit_name": "Circuit de Monaco", "lat": 43.7347, "lon": 7.4206, "date": date(2026, 6, 7), "round": 8},
             {"name": "Spanish Grand Prix", "country": "Spain", "city": "Barcelona", "circuit_name": "Circuit de Barcelona-Catalunya", "lat": 41.57, "lon": 2.2611, "date": date(2026, 6, 21), "round": 9},
             {"name": "Canadian Grand Prix", "country": "Canada", "city": "Montreal", "circuit_name": "Circuit Gilles Villeneuve", "lat": 45.5005, "lon": -73.5225, "date": date(2026, 7, 5), "round": 10},

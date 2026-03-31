@@ -50,7 +50,8 @@ class FormulaRepository(private val database: FormulaDatabase) {
             val entity = CircuitDetailEntity(
                 apiData.round, apiData.gp_name, apiData.circuit_name, apiData.location,
                 apiData.length, apiData.laps, apiData.record, apiData.is_sprint,
-                apiData.dates.joinToString(","), apiData.status
+                apiData.dates.joinToString(","), apiData.status,
+                apiData.previous_winner, apiData.most_wins, apiData.most_poles
             )
             raceDao.insertCircuitDetail(entity)
         } catch (e: Exception) {}
