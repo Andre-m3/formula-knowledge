@@ -1,5 +1,6 @@
 from sqlalchemy import Column, Integer, String, Float, Date, ForeignKey, Boolean
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import Mapped, relationship
+from typing import Optional
 from .database import Base
 
 class Team(Base):
@@ -43,6 +44,21 @@ class Race(Base):
     lap_record = Column(String, nullable=True)
     is_sprint = Column(Boolean, default=False)
     cancelled = Column(Boolean, default=False)
+    
+    fp1_time: Mapped[Optional[str]]
+    fp2_time: Mapped[Optional[str]]
+    fp3_time: Mapped[Optional[str]]
+    sprint_shootout_time: Mapped[Optional[str]]
+    sprint_race_time: Mapped[Optional[str]]
+    quali_time: Mapped[Optional[str]]
+    race_time: Mapped[Optional[str]]
+    
+    previous_winner: Mapped[Optional[str]]
+    most_driver_wins: Mapped[Optional[str]]
+    most_constructor_wins: Mapped[Optional[str]]
+    most_driver_podiums: Mapped[Optional[str]]
+    most_poles: Mapped[Optional[str]]
+    num_races_held: Mapped[int] = 0
     
     results = relationship("RaceResult", back_populates="race")
     updates = relationship("TechnicalUpdate", back_populates="race")

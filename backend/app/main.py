@@ -35,6 +35,15 @@ class WeatherForecastSchema(BaseModel):
     uv: str
     rain_probability: str
     daily: List[DailyForecastSchema]
+    
+class SessionTimesSchema(BaseModel):
+    fp1: Optional[str] = None
+    fp2: Optional[str] = None
+    fp3: Optional[str] = None
+    sprint_shootout: Optional[str] = None
+    sprint_race: Optional[str] = None
+    quali: Optional[str] = None
+    race: Optional[str] = None
 
 class RaceWeekResponse(BaseModel):
     gp_name: str
@@ -45,6 +54,7 @@ class RaceWeekResponse(BaseModel):
     is_sprint: bool
     dates: List[str]
     weather_forecast: Optional[WeatherForecastSchema] = None
+    sessions: SessionTimesSchema
 
 class CalendarEntryResponse(BaseModel):
     name: str
@@ -93,6 +103,7 @@ class CircuitDetailResponse(BaseModel):
     gp_name: str
     circuit_name: str
     location: str
+    country: str
     length: str
     laps: int
     record: str
@@ -100,8 +111,12 @@ class CircuitDetailResponse(BaseModel):
     dates: List[str]
     status: str
     previous_winner: str
-    most_wins: str
+    most_driver_wins: str
+    most_constructor_wins: str
+    most_driver_podiums: str
     most_poles: str
+    num_races_held: int
+    sessions: SessionTimesSchema
 
 # --- ENDPOINTS ---
 
@@ -119,6 +134,14 @@ async def get_current_raceweek(db: Session = Depends(database.get_db)):
         (race_date - timedelta(days=1)).strftime('%d %b'),
         race_date.strftime('%d %b')
     ]
+    
+    sessions = {
+        "fp1": db_race.fp1_time, "fp2": db_race.fp2_time,
+        "fp3": db_race.fp3_time, "sprint_shootout": db_race.sprint_shootout_time,
+        "sprint_race": db_race.sprint_race_time, "quali": db_race.quali_time,
+        "race": db_race.race_time
+    } if db_race else {}
+        
     return {
         "gp_name": race_info["name"],
         "country": race_info["country"],
@@ -127,7 +150,8 @@ async def get_current_raceweek(db: Session = Depends(database.get_db)):
         "round_number": race_info["round"],
         "is_sprint": is_sprint,
         "dates": dates_list,
-        "weather_forecast": forecast
+        "weather_forecast": forecast,
+        "sessions": sessions
     }
 
 @app.get("/api/v1/circuit/{round_number}", response_model=CircuitDetailResponse)
@@ -151,9 +175,14 @@ def get_circuit_details(round_number: int, db: Session = Depends(database.get_db
     else:
         status = "future"
 
+    display_gp_name = race.name
+    if "Emilia Romagna" in race.name:
+        display_gp_name = "Imola Grand Prix"
+
     return {
         "round": race.round_number,
-        "gp_name": race.name,
+        "gp_name": display_gp_name,
+        "country": race.country,
         "circuit_name": race.circuit_name or race.name,
         "location": f"{race.city.upper()} ({race.country})",
         "length": race.circuit_length or "N/A",
@@ -162,9 +191,21 @@ def get_circuit_details(round_number: int, db: Session = Depends(database.get_db
         "is_sprint": race.is_sprint,
         "dates": dates_list,
         "status": status,
-        "previous_winner": "Max Verstappen (2025)", # Dati temporanei mockati
-        "most_wins": "Michael Schumacher (5)",     # Dati temporanei mockati
-        "most_poles": "Ayrton Senna (6)"           # Dati temporanei mockati
+        "previous_winner": race.previous_winner or "N/A",
+        "most_driver_wins": race.most_driver_wins or "N/A",
+        "most_constructor_wins": race.most_constructor_wins or "N/A",
+        "most_driver_podiums": race.most_driver_podiums or "N/A",
+        "most_poles": race.most_poles or "N/A",
+        "num_races_held": race.num_races_held or 0,
+        "sessions": {
+            "fp1": race.fp1_time,
+            "fp2": race.fp2_time,
+            "fp3": race.fp3_time,
+            "sprint_shootout": race.sprint_shootout_time,
+            "sprint_race": race.sprint_race_time,
+            "quali": race.quali_time,
+            "race": race.race_time
+        }
     }
 
 @app.get("/api/v1/results/{round_number}", response_model=List[RaceResultResponseSchema])

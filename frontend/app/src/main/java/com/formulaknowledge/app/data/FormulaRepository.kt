@@ -3,6 +3,7 @@ package com.formulaknowledge.app.data
 import kotlinx.coroutines.flow.Flow
 import com.google.gson.Gson
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
 
 class FormulaRepository(private val database: FormulaDatabase) {
@@ -47,11 +48,25 @@ class FormulaRepository(private val database: FormulaDatabase) {
     suspend fun refreshCircuitDetail(round: Int) {
         try {
             val apiData = RetrofitClient.apiService.getCircuitDetails(round)
+            val existingCircuit = raceDao.getCircuitDetail(round).firstOrNull()
+            
+            // Se abbiamo già dati locali, usiamoli come fallback per le sessioni
+            // nel caso in cui l'API (magari a causa di pre-fetch in massa) fallisca nel portarli
+            val fp1 = apiData.sessions.fp1 ?: existingCircuit?.fp1_time
+            val fp2 = apiData.sessions.fp2 ?: existingCircuit?.fp2_time
+            val fp3 = apiData.sessions.fp3 ?: existingCircuit?.fp3_time
+            val sprintShootout = apiData.sessions.sprint_shootout ?: existingCircuit?.sprint_shootout_time
+            val sprintRace = apiData.sessions.sprint_race ?: existingCircuit?.sprint_race_time
+            val quali = apiData.sessions.quali ?: existingCircuit?.quali_time
+            val race = apiData.sessions.race ?: existingCircuit?.race_time
+            
             val entity = CircuitDetailEntity(
-                apiData.round, apiData.gp_name, apiData.circuit_name, apiData.location,
+                apiData.round, apiData.gp_name, apiData.circuit_name, apiData.location, apiData.country,
                 apiData.length, apiData.laps, apiData.record, apiData.is_sprint,
-                apiData.dates.joinToString(","), apiData.status,
-                apiData.previous_winner, apiData.most_wins, apiData.most_poles
+                apiData.dates.joinToString(","), apiData.status, apiData.previous_winner,
+                apiData.most_driver_wins, apiData.most_constructor_wins, apiData.most_driver_podiums,
+                apiData.most_poles, apiData.num_races_held,
+                fp1, fp2, fp3, sprintShootout, sprintRace, quali, race
             )
             raceDao.insertCircuitDetail(entity)
         } catch (e: Exception) {}
@@ -79,12 +94,23 @@ class FormulaRepository(private val database: FormulaDatabase) {
             }
             generalDao.updateCalendar(entities)
 
-            // Pre-fetch silente dei dettagli e dei risultati per le gare passate/correnti
+            // Pre-fetch silente: scarichiamo in background solo ciò che manca nel DB
             coroutineScope {
-                entities.filter { it.is_clickable }.forEach { race ->
+                entities.filter { !it.cancelled }.forEach { race ->
                     launch {
-                        refreshCircuitDetail(race.round)
-                        if (race.status == "past") refreshRaceResults(race.round)
+                        // Pre-carica i dettagli del circuito per tutte le gare non cancellate (se mancano)
+                        val existingCircuit = raceDao.getCircuitDetail(race.round).firstOrNull()
+                        if (existingCircuit == null) {
+                            refreshCircuitDetail(race.round)
+                        }
+                        
+                        // Pre-carica i risultati solo per le gare passate (se mancano)
+                        if (race.status == "past") {
+                            val existingResults = raceDao.getRaceResults(race.round).firstOrNull()
+                            if (existingResults.isNullOrEmpty()) {
+                                refreshRaceResults(race.round)
+                            }
+                        }
                     }
                 }
             }
@@ -93,13 +119,25 @@ class FormulaRepository(private val database: FormulaDatabase) {
 
     suspend fun refreshCurrentRaceWeek() {
         try {
+            val existingData = currentRaceWeek.firstOrNull()
+            val now = System.currentTimeMillis()
+            val cacheDuration = 1 * 60 * 60 * 1000 // 1 ora di cache invece di 24h per avere meteo e orari sempre freschi
+
+            // Se abbiamo dati e sono più recenti di 1 ora, non facciamo nulla.
+            if (existingData != null && (now - existingData.weather_last_updated < cacheDuration)) {
+                return
+            }
+
+            // Altrimenti, scarichiamo dati freschi
             val apiData = RetrofitClient.apiService.getCurrentRaceWeek()
             val weatherJson = Gson().toJson(apiData.weather_forecast)
             val entity = RaceWeekEntity(
                 1, apiData.gp_name, apiData.country, apiData.city, apiData.circuit_name,
-                apiData.round_number, apiData.is_sprint, apiData.dates.joinToString(","), weatherJson
+                apiData.round_number, apiData.is_sprint, apiData.dates.joinToString(","), weatherJson, now,
+                apiData.sessions.fp1, apiData.sessions.fp2, apiData.sessions.fp3,
+                apiData.sessions.sprint_shootout, apiData.sessions.sprint_race, apiData.sessions.quali, apiData.sessions.race
             )
             generalDao.insertRaceWeek(entity)
-        } catch (e: Exception) {}
+        } catch (e: Exception) { /* Ignoriamo l'errore, la UI gestirà i dati vecchi/assenti */ }
     }
 }

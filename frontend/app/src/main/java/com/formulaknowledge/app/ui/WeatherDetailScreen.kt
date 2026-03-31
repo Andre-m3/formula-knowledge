@@ -11,7 +11,13 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.Icon
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -25,55 +31,78 @@ import androidx.compose.ui.unit.sp
 import com.formulaknowledge.app.data.DailyForecast
 import com.formulaknowledge.app.data.RaceWeekResponse
 
+import com.formulaknowledge.app.data.RaceWeekEntity
+import kotlinx.coroutines.delay
+
 @Composable
-fun WeatherDetailScreen(raceWeek: RaceWeekResponse?) {
-    val weather = raceWeek?.weather_forecast
-
-    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
-        Spacer(modifier = Modifier.height(32.dp)) 
-
-        Text(
-            text = "WEATHER",
-            color = Color.White,
-            fontSize = 54.sp,
-            fontWeight = FontWeight.Black,
-            fontStyle = FontStyle.Italic,
-            letterSpacing = (-2).sp,
-            lineHeight = 50.sp
-        )
-        Text(
-            text = "${raceWeek?.gp_name?.uppercase() ?: "CIRCUIT"} FORECAST",
-            color = Color(0xFF00FFCC),
-            fontSize = 16.sp,
-            fontWeight = FontWeight.Black,
-            letterSpacing = 1.sp
-        )
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        MainWeatherCard(weather)
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        Text(text = "5-DAY FORECAST", color = Color.White.copy(alpha = 0.5f), fontSize = 14.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
-        Spacer(modifier = Modifier.height(12.dp))
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(20.dp),
-            color = Color.White.copy(alpha = 0.03f),
-            border = androidx.compose.foundation.BorderStroke(0.5.dp, Color.White.copy(alpha = 0.1f))
-        ) {
-            Column(modifier = Modifier.padding(vertical = 4.dp)) {
-                weather?.daily?.forEachIndexed { index, dailyForecast ->
-                    DailyForecastRow(dailyForecast)
-                    if (index < weather.daily.size - 1) {
-                        HorizontalDivider(color = Color.White.copy(alpha = 0.05f), modifier = Modifier.padding(horizontal = 16.dp))
-                    }
-                }
-            }
-        }
-    }
-}
+fun WeatherDetailScreen(raceWeek: RaceWeekResponse?, raceWeekEntity: com.formulaknowledge.app.data.RaceWeekEntity?) {
+     val weather = raceWeek?.weather_forecast
+ 
+     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
+         Spacer(modifier = Modifier.height(46.dp))
+ 
+         Text(
+             text = "WEATHER",
+             color = Color.White,
+             fontSize = 54.sp,
+             fontWeight = FontWeight.Black,
+             fontStyle = FontStyle.Italic,
+             letterSpacing = (-3).sp,
+             lineHeight = 50.sp
+         )
+         val cityName = raceWeek?.gp_name?.uppercase()?.replace(" GRAND PRIX", "") ?: "CIRCUIT"
+         Text(
+             text = "$cityName FORECAST",
+             color = Color(0xFF00FFCC),
+             fontSize = 38.sp,
+             fontWeight = FontWeight.Black,
+             fontStyle = FontStyle.Italic,
+             letterSpacing = (-2).sp,
+             modifier = Modifier.offset(y = (-10).dp)
+         )
+ 
+         Spacer(modifier = Modifier.height(24.dp))
+ 
+         if (weather != null) {
+             MainWeatherCard(weather)
+ 
+             Spacer(modifier = Modifier.height(24.dp))
+ 
+             Text(text = "5-DAY FORECAST", color = Color.White.copy(alpha = 0.5f), fontSize = 14.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
+             Spacer(modifier = Modifier.height(12.dp))
+             Surface(
+                 modifier = Modifier.fillMaxWidth(),
+                 shape = RoundedCornerShape(20.dp),
+                 color = Color.White.copy(alpha = 0.03f),
+                 border = androidx.compose.foundation.BorderStroke(0.5.dp, Color.White.copy(alpha = 0.1f))
+             ) {
+                 Column(modifier = Modifier.padding(vertical = 4.dp)) {
+                     weather.daily.forEachIndexed { index, dailyForecast ->
+                         DailyForecastRow(dailyForecast)
+                         if (index < weather.daily.size - 1) {
+                             HorizontalDivider(color = Color.White.copy(alpha = 0.05f), modifier = Modifier.padding(horizontal = 16.dp))
+                         }
+                     }
+                 }
+             }
+         } else {
+             var showError by remember { mutableStateOf(false) }
+ 
+             LaunchedEffect(Unit) {
+                 delay(5000)
+                 showError = true
+             }
+ 
+             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                 if (showError) {
+                     WeatherErrorState()
+                 } else {
+                     CircularProgressIndicator(color = Color(0xFF00FFCC))
+                 }
+             }
+         }
+     }
+ }
 
 @Composable
 fun MainWeatherCard(weather: com.formulaknowledge.app.data.WeatherForecast?) {
@@ -176,6 +205,23 @@ fun DailyForecastRow(forecast: DailyForecast) {
             Spacer(modifier = Modifier.width(4.dp))
             Text(text = forecast.rain_probability, color = Color.White.copy(alpha = 0.8f), fontSize = 13.sp, fontWeight = FontWeight.Black)
         }
+    }
+}
+
+@Composable
+fun WeatherErrorState() {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Icon(
+            imageVector = Icons.Default.CloudOff,
+            contentDescription = "Errore Meteo",
+            tint = Color.White.copy(alpha = 0.3f),
+            modifier = Modifier.size(60.dp)
+        )
+        Text(
+            text = "Impossibile caricare i dati meteo.\nControlla la tua connessione a Internet.",
+            color = Color.White.copy(alpha = 0.5f),
+            textAlign = TextAlign.Center
+        )
     }
 }
 

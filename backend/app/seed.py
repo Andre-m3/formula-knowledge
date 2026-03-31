@@ -2,6 +2,7 @@ from sqlalchemy.orm import Session
 from .database import SessionLocal, engine
 from .models import Team, Driver, Race, RaceResult, Base
 from .services.calendar_service import CalendarService
+from .services.external_api_service import ExternalApiService
 from datetime import date
 
 # Dati per il seeding (Stagione 2026 - Proiezione)
@@ -9,14 +10,14 @@ TEAMS_DATA = [
     {"name": "Mercedes-AMG PETRONAS F1 Team", "color_hex": "#00D2BE", "power_unit": "Mercedes", "chassis_name": "W17"},
     {"name": "Oracle Red Bull Racing", "color_hex": "#1E41FF", "power_unit": "RedBull-Ford Powertrains", "chassis_name": "RB22"},
     {"name": "Scuderia Ferrari HP", "color_hex": "#E32219", "power_unit": "Ferrari", "chassis_name": "SF-26"},
-    {"name": "McLaren Mastercard F1 Team", "color_hex": "#FF8000", "power_unit": "Mercedes", "chassis_name": "MCL39"},
+    {"name": "McLaren Mastercard F1 Team", "color_hex": "#FF8000", "power_unit": "Mercedes", "chassis_name": "MCL40"},
     {"name": "Aston Martin Aramco F1 Team", "color_hex": "#006F62", "power_unit": "Honda", "chassis_name": "AMR26"},
     {"name": "BWT Alpine F1 Team", "color_hex": "#0090FF", "power_unit": "Mercedes", "chassis_name": "A526"},
     {"name": "Atlassian Williams F1 Team", "color_hex": "#005AFF", "power_unit": "Mercedes", "chassis_name": "FW48"},
-    {"name": "Visa Cash App Racing Bulls", "color_hex": "#00359F", "power_unit": "RedBull-Ford Powertrains", "chassis_name": "VCARB 02"},
-    {"name": "Audi Revolut F1 Team", "color_hex": "#A9A9A9", "power_unit": "Audi", "chassis_name": "F1-01"},
+    {"name": "Visa Cash App Racing Bulls", "color_hex": "#00359F", "power_unit": "RedBull-Ford Powertrains", "chassis_name": "VCARB 03"},
+    {"name": "Audi Revolut F1 Team", "color_hex": "#A9A9A9", "power_unit": "Audi", "chassis_name": "R26"},
     {"name": "TGR Haas F1 Team", "color_hex": "#B6B6B6", "power_unit": "Ferrari", "chassis_name": "VF-26"},
-    {"name": "Cadillac F1 Team", "color_hex": "#00008B", "power_unit": "Ferrari", "chassis_name": "C1"},
+    {"name": "Cadillac F1 Team", "color_hex": "#00008B", "power_unit": "Ferrari", "chassis_name": "MAC-26"},
 ]
 
 DRIVERS_DATA = [
@@ -55,6 +56,116 @@ DRIVERS_DATA = [
     {"first_name": "Valtteri", "last_name": "Bottas", "number": 77, "nationality": "Finnish", "team_name": "Cadillac F1 Team"},
 ]
 
+HISTORICAL_DATA = {
+    "Albert Park Grand Prix Circuit": {
+        "laps": 58,
+        "circuit_length": "5.278 km",
+        "lap_record": "1:20.235 (Sergio Pérez, 2025)",
+        "previous_winner": "Carlos Sainz (2024)",
+        "most_driver_wins": "Michael Schumacher (4)",
+        "most_constructor_wins": "Ferrari (13)",
+        "most_driver_podiums": "Lewis Hamilton (10)",
+        "most_poles": "Lewis Hamilton (8)",
+        "num_races_held": 27,
+    },
+    
+    "Shanghai International Circuit": {
+        "laps": 56,
+        "circuit_length": "5.451 km",
+        "lap_record": "1:30.641 (Oscar Piastri, 2025)",
+        "previous_winner": "Kimi Antonelli (2026)",
+        "most_driver_wins": "Lewis Hamilton (6)",
+        "most_constructor_wins": "Mercedes (6)",
+        "most_driver_podiums": "Lewis Hamilton (10)",
+        "most_poles": "Lewis Hamilton (6)",
+        "num_races_held": 18,
+    },
+    
+    "Suzuka Circuit": {
+        "laps": 53,
+        "circuit_length": "5.807 km",
+        "lap_record": "1:20.235 (Sergio Pérez, 2023)",
+        "previous_winner": "Kimi Antonelli (2026)",
+        "most_driver_wins": "Lewis Hamilton (6)",
+        "most_constructor_wins": "Mercedes (6)",
+        "most_driver_podiums": "Lewis Hamilton (10)",
+        "most_poles": "Lewis Hamilton (6)",
+        "num_races_held": 18,
+    },
+    
+    "Miami International Autodrome": {
+        "laps": 57,
+        "circuit_length": "5.412 km",
+        "lap_record": "1:20.235 (Sergio Pérez, 2023)",
+        "previous_winner": "Kimi Antonelli (2026)",
+        "most_driver_wins": "Lewis Hamilton (6)",
+        "most_constructor_wins": "Mercedes (6)",
+        "most_driver_podiums": "Lewis Hamilton (10)",
+        "most_poles": "Lewis Hamilton (6)",
+        "num_races_held": 18,
+    },
+    
+    "Circuit Gilles Villeneuve": {
+        "laps": 70,
+        "circuit_length": "5.361 km",
+        "lap_record": "1:20.235 (Sergio Pérez, 2023)",
+        "previous_winner": "Kimi Antonelli (2026)",
+        "most_driver_wins": "Lewis Hamilton (6)",
+        "most_constructor_wins": "Mercedes (6)",
+        "most_driver_podiums": "Lewis Hamilton (10)",
+        "most_poles": "Lewis Hamilton (6)",
+        "num_races_held": 18,
+    },
+    
+    "Circuit de Monaco": {
+        "laps": 78,
+        "circuit_length": "3.337 km",
+        "lap_record": "1:20.235 (Sergio Pérez, 2023)",
+        "previous_winner": "Kimi Antonelli (2026)",
+        "most_driver_wins": "Lewis Hamilton (6)",
+        "most_constructor_wins": "Mercedes (6)",
+        "most_driver_podiums": "Lewis Hamilton (10)",
+        "most_poles": "Lewis Hamilton (6)",
+        "num_races_held": 18,
+    },
+    
+    "Circuit de Barcelona-Catalunya": {
+        "laps": 66,
+        "circuit_length": "4.657 km",
+        "lap_record": "1:20.235 (Sergio Pérez, 2023)",
+        "previous_winner": "Kimi Antonelli (2026)",
+        "most_driver_wins": "Lewis Hamilton (6)",
+        "most_constructor_wins": "Mercedes (6)",
+        "most_driver_podiums": "Lewis Hamilton (10)",
+        "most_poles": "Lewis Hamilton (6)",
+        "num_races_held": 18,
+    },
+    
+    "Red Bull Ring": {
+        "laps": 71,
+        "circuit_length": "4.326 km",
+        "lap_record": "1:20.235 (Sergio Pérez, 2023)",
+        "previous_winner": "Kimi Antonelli (2026)",
+        "most_driver_wins": "Lewis Hamilton (6)",
+        "most_constructor_wins": "Mercedes (6)",
+        "most_driver_podiums": "Lewis Hamilton (10)",
+        "most_poles": "Lewis Hamilton (6)",
+        "num_races_held": 18,
+    },
+    
+    "Silverstone Circuit": {
+        "laps": 52,
+        "circuit_length": "5.891 km",
+        "lap_record": "1:20.235 (Sergio Pérez, 2023)",
+        "previous_winner": "Kimi Antonelli (2026)",
+        "most_driver_wins": "Lewis Hamilton (6)",
+        "most_constructor_wins": "Mercedes (6)",
+        "most_driver_podiums": "Lewis Hamilton (10)",
+        "most_poles": "Lewis Hamilton (6)",
+        "num_races_held": 18,
+    },
+}
+
 def seed_database():
     # Elimina tabelle esistenti per rifare il seeding con i nuovi campi
     Base.metadata.drop_all(bind=engine)
@@ -78,20 +189,46 @@ def seed_database():
 
         print("Popolamento tabella Races...")
         calendar_service = CalendarService()
+        schedule_data = ExternalApiService.get_schedule(year=2026)
         for race_data in calendar_service.races:
-            # Mocking alcuni dati circuiti
+            circuit_name = race_data.get("circuit_name")
+            hist_data = HISTORICAL_DATA.get(circuit_name, {}) # Prende i dati storici tramite nome circuito
+            round_num = race_data["round"]
+            sessions = schedule_data.get(round_num, {})
+            
+            # Manteniamo la nostra lista manuale come fonte di verità assoluta
+            is_sprint_final = (race_data["round"] in [2, 4, 5, 9, 12, 16]) or sessions.get("is_sprint_jolpica", False)
+
             race = Race(
+                # dati round #
                 round_number=race_data["round"],
                 name=race_data["name"],
                 date=race_data["date"],
                 country=race_data["country"],
                 city=race_data["city"],
-                circuit_name=race_data.get("circuit_name"),
-                laps=58 if "Australia" in race_data["name"] else 56,
-                circuit_length="5.303 km" if "Australia" in race_data["name"] else "5.451 km",
-                lap_record="1:20.235 (Sergio Perez, 2024)" if "Australia" in race_data["name"] else "1:32.238 (Max Verstappen, 2024)",
-                is_sprint=race_data["round"] in [2, 6, 11, 18, 19, 22],
-                cancelled=race_data.get("cancelled", False)
+                circuit_name=circuit_name,
+                laps=hist_data.get("laps", 57),
+                circuit_length=hist_data.get("circuit_length", "N/A"),
+                lap_record=hist_data.get("lap_record", "N/A"),
+                
+                # dati storici #
+                previous_winner=hist_data.get("previous_winner", "N/A"),
+                most_driver_wins=hist_data.get("most_driver_wins", "N/A"),
+                most_constructor_wins=hist_data.get("most_constructor_wins", "N/A"),
+                most_driver_podiums=hist_data.get("most_driver_podiums", "N/A"),
+                most_poles=hist_data.get("most_poles", "N/A"),
+                num_races_held=hist_data.get("num_races_held", 0),
+                is_sprint=is_sprint_final,
+                cancelled=race_data.get("cancelled", False),
+                
+                # sessioni di gara #
+                fp1_time=sessions.get("fp1"),
+                fp2_time=sessions.get("fp2"),
+                fp3_time=sessions.get("fp3"),
+                sprint_shootout_time=sessions.get("sprint_shootout"),
+                sprint_race_time=sessions.get("sprint_race"),
+                quali_time=sessions.get("quali"),
+                race_time=sessions.get("race")
             )
             db.add(race)
 

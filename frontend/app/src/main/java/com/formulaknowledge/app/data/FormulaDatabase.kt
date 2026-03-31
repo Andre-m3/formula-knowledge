@@ -30,6 +30,7 @@ data class CircuitDetailEntity(
     val gp_name: String,
     val circuit_name: String,
     val location: String,
+    val country: String,
     val length: String,
     val laps: Int,
     val record: String,
@@ -37,8 +38,18 @@ data class CircuitDetailEntity(
     val dates_joined: String,
     val status: String,
     val previous_winner: String,
-    val most_wins: String,
-    val most_poles: String
+    val most_driver_wins: String,
+    val most_constructor_wins: String,
+    val most_driver_podiums: String,
+    val most_poles: String,
+    val num_races_held: Int,
+    val fp1_time: String?,
+    val fp2_time: String?,
+    val fp3_time: String?,
+    val sprint_shootout_time: String?,
+    val sprint_race_time: String?,
+    val quali_time: String?,
+    val race_time: String?
 )
 
 @Entity(tableName = "race_results")
@@ -75,7 +86,15 @@ data class RaceWeekEntity(
     val round_number: Int,
     val is_sprint: Boolean,
     val dates_joined: String,
-    val weather_json: String? // Salviamo il meteo convertito in testo
+    val weather_json: String?, // Salviamo il meteo convertito in testo
+    val weather_last_updated: Long,
+    val fp1_time: String?,
+    val fp2_time: String?,
+    val fp3_time: String?,
+    val sprint_shootout_time: String?,
+    val sprint_race_time: String?,
+    val quali_time: String?,
+    val race_time: String?
 )
 
 // --- 2. DAOs (Data Access Objects) ---
@@ -166,7 +185,7 @@ interface GeneralDao {
 
 @Database(
     entities = [DriverStandingEntity::class, ConstructorStandingEntity::class, CircuitDetailEntity::class, RaceResultEntity::class, CalendarEntity::class, RaceWeekEntity::class],
-    version = 4,
+    version = 8,
     exportSchema = false
 )
 abstract class FormulaDatabase : RoomDatabase() {

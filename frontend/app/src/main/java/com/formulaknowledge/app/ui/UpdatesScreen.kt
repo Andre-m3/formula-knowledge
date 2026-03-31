@@ -61,9 +61,10 @@ fun UpdatesScreen() {
                 com.google.gson.Gson().fromJson(json, WeatherForecast::class.java)
             } catch (e: Exception) { null }
         }
+        val sessions = SessionTimes(entity.fp1_time, entity.fp2_time, entity.fp3_time, entity.sprint_shootout_time, entity.sprint_race_time, entity.quali_time, entity.race_time)
         RaceWeekResponse(
             entity.gp_name, entity.country, entity.city, entity.circuit_name,
-            entity.round_number, entity.is_sprint, entity.dates_joined.split(","), weather
+            entity.round_number, entity.is_sprint, entity.dates_joined.split(","), weather, sessions
         )
     }
 
@@ -77,6 +78,11 @@ fun UpdatesScreen() {
     var selectedDriverName by remember { mutableStateOf("") }
     var selectedCircuitRound by remember { mutableIntStateOf(0) }
     
+    var selectedSprintForSessions by remember { mutableStateOf(false) }
+    var selectedGpForSessions by remember { mutableStateOf("") }
+    var selectedSessions by remember { mutableStateOf<SessionTimes?>(null) }
+    var previousScreenForSessions by remember { mutableStateOf(AppScreen.HOME) }
+
     var showNotReadyDialog by remember { mutableStateOf(false) }
 
     var isBottomBarVisible by remember { mutableStateOf(true) }
@@ -102,10 +108,12 @@ fun UpdatesScreen() {
 
     BackHandler(enabled = currentScreen != AppScreen.HOME) {
         when (currentScreen) {
+            AppScreen.CALENDAR, AppScreen.STANDINGS, AppScreen.PERSONAL, AppScreen.UPDATES_LIST, AppScreen.WEATHER_DETAIL -> currentScreen = AppScreen.HOME
             AppScreen.TEAM_DETAIL -> currentScreen = AppScreen.UPDATES_LIST
             AppScreen.DRIVER_DETAIL -> currentScreen = (if (selectedRound > 0) AppScreen.RESULTS else AppScreen.STANDINGS)
             AppScreen.CIRCUIT_DETAIL -> currentScreen = AppScreen.CALENDAR
-            AppScreen.RESULTS, AppScreen.STANDINGS, AppScreen.WEATHER_DETAIL, AppScreen.UPDATES_LIST, AppScreen.RACE_SESSIONS -> currentScreen = AppScreen.HOME
+            AppScreen.RESULTS -> currentScreen = AppScreen.CIRCUIT_DETAIL
+            AppScreen.RACE_SESSIONS -> currentScreen = previousScreenForSessions
             else -> currentScreen = AppScreen.HOME
         }
     }
@@ -143,8 +151,14 @@ fun UpdatesScreen() {
                 label = "ScreenTransition"
             ) { targetScreen ->
                 when (targetScreen) {
-                    AppScreen.HOME -> HomeScreen(raceWeek, raceWeek == null, onNavigate = { 
-                        if (it == AppScreen.UPDATES_LIST && updatesWrapper?.status == "not_ready") {
+                    AppScreen.HOME -> HomeScreen(raceWeek, raceWeek == null, onNavigate = {
+                        if (it == AppScreen.RACE_SESSIONS) {
+                            selectedSprintForSessions = raceWeek?.is_sprint ?: false
+                            selectedGpForSessions = raceWeek?.gp_name ?: ""
+                            selectedSessions = raceWeek?.sessions
+                            previousScreenForSessions = AppScreen.HOME
+                            currentScreen = it
+                        } else if (it == AppScreen.UPDATES_LIST && updatesWrapper?.status == "not_ready") {
                             showNotReadyDialog = true
                         } else {
                             currentScreen = it 
@@ -164,8 +178,8 @@ fun UpdatesScreen() {
                     )
                     AppScreen.PERSONAL -> PersonalScreen()
                     AppScreen.UPDATES_LIST -> UpdatesListScreen(updatesWrapper?.data ?: emptyList(), isLoadingUpdates, onTeamClick = { selectedTeam = it; currentScreen = AppScreen.TEAM_DETAIL })
-                    AppScreen.TEAM_DETAIL -> TeamUpdateDetailScreen(selectedTeam!!)
-                    AppScreen.WEATHER_DETAIL -> WeatherDetailScreen(raceWeek)
+                    AppScreen.TEAM_DETAIL -> TeamUpdateDetailScreen(selectedTeam!!)                    
+                    AppScreen.WEATHER_DETAIL -> WeatherDetailScreen(raceWeek, raceWeekEntity)
                     AppScreen.RESULTS -> RaceResultsScreen(selectedRound, selectedGpName, onDriverClick = { name ->
                         selectedDriverName = name
                         currentScreen = AppScreen.DRIVER_DETAIL
@@ -177,14 +191,23 @@ fun UpdatesScreen() {
                         }
                     )
                     AppScreen.DRIVER_DETAIL -> DriverDetailScreen(selectedDriverName)
-                    AppScreen.RACE_SESSIONS -> RaceSessionsScreen(raceWeek)
-                    AppScreen.CIRCUIT_DETAIL -> CircuitDetailScreen(selectedCircuitRound, onNavigateToResults = { round, name ->
-                        selectedRound = round
-                        selectedGpName = name
-                        currentScreen = AppScreen.RESULTS
-                    })
+                    AppScreen.RACE_SESSIONS -> RaceSessionsScreen(selectedSprintForSessions, selectedGpForSessions, selectedSessions)
+                    AppScreen.CIRCUIT_DETAIL -> CircuitDetailScreen(
+                        round = selectedCircuitRound,
+                        onNavigateToResults = { round, name ->
+                            selectedRound = round
+                            selectedGpName = name
+                            currentScreen = AppScreen.RESULTS
+                        },
+                        onNavigateToSessions = { isSprint, name, sessions ->
+                            selectedSprintForSessions = isSprint
+                            selectedGpForSessions = name
+                            selectedSessions = sessions
+                        previousScreenForSessions = AppScreen.CIRCUIT_DETAIL
+                            currentScreen = AppScreen.RACE_SESSIONS
+                        })
                 }
-            }
+                }
 
             if (currentScreen in listOf(AppScreen.HOME, AppScreen.CALENDAR, AppScreen.PERSONAL, AppScreen.RESULTS, AppScreen.STANDINGS, AppScreen.WEATHER_DETAIL, AppScreen.DRIVER_DETAIL, AppScreen.RACE_SESSIONS, AppScreen.CIRCUIT_DETAIL)) {
                 Box(
@@ -247,18 +270,20 @@ fun UpdatesScreen() {
 }
 
 @Composable
-fun CircuitDetailScreen(round: Int, onNavigateToResults: (Int, String) -> Unit) {
+fun CircuitDetailScreen(round: Int, onNavigateToResults: (Int, String) -> Unit, onNavigateToSessions: (Boolean, String, SessionTimes) -> Unit) {
     val context = LocalContext.current
     val database = remember { FormulaDatabase.getDatabase(context) }
     val repository = remember { FormulaRepository(database) }
 
     val circuitEntity by repository.getCircuitDetail(round).collectAsState(initial = null)
     val circuitData = circuitEntity?.let {
+        val sessions = SessionTimes(it.fp1_time, it.fp2_time, it.fp3_time, it.sprint_shootout_time, it.sprint_race_time, it.quali_time, it.race_time)
         CircuitDetailResponse(
-            it.round, it.gp_name, it.circuit_name, it.location,
-            it.length, it.laps, it.record, it.is_sprint,
-            it.dates_joined.split(","), it.status,
-            it.previous_winner, it.most_wins, it.most_poles
+            it.round, it.gp_name, it.circuit_name, it.location, it.country,
+            it.length, it.laps, it.record, it.is_sprint, it.dates_joined.split(","),
+            it.status, it.previous_winner, it.most_driver_wins,
+            it.most_constructor_wins, it.most_driver_podiums, it.most_poles,
+            it.num_races_held, sessions
         )
     }
     
@@ -288,16 +313,13 @@ fun CircuitDetailScreen(round: Int, onNavigateToResults: (Int, String) -> Unit) 
                         }
                         
                         val rawGpName = data.gp_name.uppercase().replace("GRAND PRIX", "").trim()
-                        val displayGpName = "$rawGpName GP"
-                        val gpNameFontSize = when {
-                            displayGpName.length > 18 -> 34.sp
-                            displayGpName.length > 13 -> 44.sp
-                            else -> 58.sp
+                        var displayGpName = "$rawGpName GP"
+                        if (displayGpName.length > 11) { // "JAPANESE GP" è 11 caratteri
+                            displayGpName = data.country.uppercase()
                         }
-                        val gpNameLetterSpacing = if (displayGpName.length > 13) (-2).sp else (-5).sp
 
                         Text(
-                            text = displayGpName, color = Color.White, fontSize = gpNameFontSize, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic, letterSpacing = gpNameLetterSpacing, maxLines = 1, overflow = TextOverflow.Visible
+                            text = displayGpName, color = Color.White, fontSize = 58.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic, letterSpacing = (-5).sp, maxLines = 1, softWrap = false
                         )
                         
                         val dates = data.dates
@@ -358,6 +380,24 @@ fun CircuitDetailScreen(round: Int, onNavigateToResults: (Int, String) -> Unit) 
                     
                     item { HistoricalDataCard(data) }
                     
+                    if (data.status == "future" || data.status == "current") {
+                        item {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Button(
+                                onClick = { onNavigateToSessions(data.is_sprint, data.gp_name, data.sessions) },
+                                modifier = Modifier.fillMaxWidth().height(56.dp),
+                                shape = RoundedCornerShape(16.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00FFCC).copy(alpha = 0.9f))
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.Timer, null, tint = Color.Black)
+                                    Spacer(Modifier.width(12.dp))
+                                    Text("PROSSIME SESSIONI", color = Color.Black, fontWeight = FontWeight.Black, fontSize = 16.sp)
+                                }
+                            }
+                        }
+                    }
+
                     if (data.status == "past") {
                         item {
                             Spacer(modifier = Modifier.height(10.dp))
@@ -412,7 +452,9 @@ fun HistoricalDataCard(data: CircuitDetailResponse) {
             HorizontalDivider(color = Color.White.copy(alpha = 0.05f), modifier = Modifier.padding(vertical = 12.dp))
             HistoricalRow("PREVIOUS WINNER", data.previous_winner)
             HorizontalDivider(color = Color.White.copy(alpha = 0.05f), modifier = Modifier.padding(vertical = 12.dp))
-            HistoricalRow("MOST WINS", data.most_wins)
+            HistoricalRow("MOST WINS (DRIVER)", data.most_driver_wins)
+            HorizontalDivider(color = Color.White.copy(alpha = 0.05f), modifier = Modifier.padding(vertical = 12.dp))
+            HistoricalRow("MOST WINS (TEAM)", data.most_constructor_wins)
             HorizontalDivider(color = Color.White.copy(alpha = 0.05f), modifier = Modifier.padding(vertical = 12.dp))
             HistoricalRow("MOST POLES", data.most_poles)
         }
@@ -508,7 +550,7 @@ fun StandingsScreen(
             },
             label = "StandingsListTransition"
         ) { targetTab ->
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 120.dp), modifier = Modifier.graphicsLayer {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp), contentPadding = PaddingValues(bottom = 120.dp), modifier = Modifier.graphicsLayer {
                 val progress = Math.min(1f, Math.abs(swipeOffset) / 500f)
                 alpha = 1f - (progress * 0.5f)
                 scaleX = 1f - (progress * 0.05f)
@@ -522,7 +564,7 @@ fun StandingsScreen(
                         if (leader != null) {
                             item {
                                 LeaderCard(name = leader.driver_name, subtitle = leader.constructor_name, points = leader.points.toString(), gap = if (leader.points - secondPlacePoints > 0) "+${leader.points - secondPlacePoints} PTS" else "LEADER", icon = "1", onClick = { onDriverClick(leader.driver_name) })
-                                Spacer(modifier = Modifier.height(16.dp))
+                                Spacer(modifier = Modifier.height(12.dp))
                             }
                         }
                         items(drivers.drop(1)) { driver -> StandingRow(driver.position, driver.driver_name, driver.points.toString(), driver.constructor_name, height = 61.dp, onClick = { onDriverClick(driver.driver_name) }) }
@@ -531,8 +573,8 @@ fun StandingsScreen(
                         val secondPlacePoints = constructors.getOrNull(1)?.points ?: 0
                         if (leader != null) {
                             item {
-                                LeaderCard(name = leader.constructor_name, subtitle = "LEADER • ${leader.chassis_name ?: "CHASSIS"}", points = leader.points.toString(), gap = if (leader.points - secondPlacePoints > 0) "+${leader.points - secondPlacePoints} PTS" else "LEADER", icon = "\uD83C\uDFCE\uFE0F")
-                                Spacer(modifier = Modifier.height(16.dp))
+                                LeaderCard(name = leader.constructor_name, subtitle = leader.chassis_name ?: "CHASSIS", points = leader.points.toString(), gap = if (leader.points - secondPlacePoints > 0) "+${leader.points - secondPlacePoints} PTS" else "LEADER", icon = "\uD83C\uDFCE\uFE0F")
+                                Spacer(modifier = Modifier.height(12.dp))
                             }
                         }
                         items(constructors.drop(1)) { team -> StandingRow(team.position, team.constructor_name, team.points.toString(), subtitle = team.chassis_name, height = 61.dp) }
@@ -560,8 +602,8 @@ fun LeaderCard(name: String, subtitle: String, points: String, gap: String, icon
                     Text(text = subtitle.uppercase(), color = Color.White.copy(alpha = 0.5f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 }
                 Column(horizontalAlignment = Alignment.End) {
-                    Text(text = points, color = Color.White, fontSize = 42.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic, lineHeight = 44.sp)
-                    Text(text = gap, color = Color(0xFF00FFCC), fontSize = 12.sp, fontWeight = FontWeight.Black)
+                    Text(text = points, color = Color.White, fontSize = 42.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic, lineHeight = 42.sp)
+                    Text(text = gap, color = Color(0xFF00FFCC), fontSize = 12.sp, fontWeight = FontWeight.Black, modifier = Modifier.offset(y = (-4).dp))
                 }
             }
             Text(text = icon, color = Color.White.copy(alpha = 0.05f), fontSize = 120.sp, fontWeight = FontWeight.Black, modifier = Modifier.align(Alignment.BottomEnd).offset(x = 20.dp, y = 40.dp))
@@ -595,9 +637,9 @@ fun FloatingBottomBar(currentScreen: AppScreen, onNavigate: (AppScreen) -> Unit)
         Triple(Icons.Default.Leaderboard, "Classifiche", AppScreen.STANDINGS),
         Triple(Icons.Default.Person, "Personal", AppScreen.PERSONAL)
     )
-    val barWidth = 240.dp
-    val barHeight = 52.dp
-    Surface(modifier = Modifier.height(barHeight).width(barWidth), shape = RoundedCornerShape(26.dp), color = Color(0xFF1E0A0A).copy(alpha = 0.82f), border = BorderStroke(1.2.dp, Color(0xFFFF0033).copy(alpha = 0.9f))) {
+    val barWidth = 252.dp
+    val barHeight = 55.dp
+    Surface(modifier = Modifier.height(barHeight).width(barWidth), shape = RoundedCornerShape(27.dp), color = Color(0xFF1E0A0A).copy(alpha = 0.92f), border = BorderStroke(1.2.dp, Color(0xFFFF0033).copy(alpha = 0.9f))) {
         Box(modifier = Modifier.fillMaxSize()) {
             val selectedIndex = items.indexOfFirst { it.third == when(currentScreen) {
                 AppScreen.CALENDAR -> AppScreen.CALENDAR
@@ -643,14 +685,10 @@ fun HomeScreen(raceWeek: RaceWeekResponse?, isLoading: Boolean, onNavigate: (App
             } else {
                 Column {
                     val rawGpName = raceWeek?.gp_name?.uppercase()?.replace("GRAND PRIX", "")?.trim() ?: "JAPANESE"
-                    val displayGpName = "$rawGpName GP"
-
-                    val gpNameFontSize = when {
-                        displayGpName.length > 18 -> 34.sp
-                        displayGpName.length > 13 -> 44.sp
-                        else -> 58.sp
+                    var displayGpName = "$rawGpName GP"
+                    if (displayGpName.length > 11) {
+                        displayGpName = raceWeek?.country?.uppercase() ?: rawGpName
                     }
-                    val gpNameLetterSpacing = if (displayGpName.length > 13) (-2).sp else (-5).sp
                     
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Surface(color = Color(0xFF00FFCC), shape = RoundedCornerShape(4.dp)) {
@@ -659,7 +697,7 @@ fun HomeScreen(raceWeek: RaceWeekResponse?, isLoading: Boolean, onNavigate: (App
                         Spacer(modifier = Modifier.width(10.dp))
                         Text(text = "NEXT EVENT", color = Color.White.copy(alpha = 0.5f), fontSize = 16.sp, fontWeight = FontWeight.Bold)
                     }
-                    Text(text = displayGpName, color = Color.White, fontSize = gpNameFontSize, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic, letterSpacing = gpNameLetterSpacing, maxLines = 1, overflow = TextOverflow.Visible)
+                    Text(text = displayGpName, color = Color.White, fontSize = 58.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic, letterSpacing = (-5).sp, maxLines = 1, softWrap = false)
                     
                     Spacer(modifier = Modifier.height(8.dp))
                     
@@ -678,7 +716,7 @@ fun HomeScreen(raceWeek: RaceWeekResponse?, isLoading: Boolean, onNavigate: (App
             }
         }
         Spacer(modifier = Modifier.height(26.dp)) 
-        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) { 
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) { 
             FullWidthGlassCard(title = "RACE SESSIONS", content = "See all schedule...", accentColor = Color(0xFF00FFCC), isHighlighted = true, onClick = { onNavigate(AppScreen.RACE_SESSIONS) })
             val weatherStatus = raceWeek?.weather_forecast?.status ?: "Partly Cloudy"
             val weatherIcon = when {
@@ -767,11 +805,11 @@ fun PersonalScreen() {
 fun StandingRow(pos: Int, name: String, points: String, subtitle: String? = null, height: androidx.compose.ui.unit.Dp = 72.dp, onClick: () -> Unit = {}) {
     Surface(modifier = Modifier.fillMaxWidth().height(height).clickable { onClick() }, shape = RoundedCornerShape(12.dp), color = Color.White.copy(alpha = 0.03f)) {
         Row(modifier = Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(text = pos.toString(), color = Color(0xFF00FFCC), fontSize = 18.sp, fontWeight = FontWeight.Black, modifier = Modifier.width(40.dp), lineHeight = 22.sp)
+            Text(text = pos.toString(), color = Color(0xFF00FFCC), fontSize = 20.sp, fontWeight = FontWeight.Black, modifier = Modifier.width(40.dp), lineHeight = 24.sp)
             Column(modifier = Modifier.weight(1f)) {
-                Text(text = name, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold, lineHeight = 18.sp)
+                Text(text = name, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, lineHeight = 20.sp)
                 if (!subtitle.isNullOrBlank()) {
-                    Text(text = subtitle.uppercase(), color = Color.White.copy(alpha = 0.4f), fontSize = 10.sp, fontWeight = FontWeight.Black, lineHeight = 12.sp)
+                    Text(text = subtitle.uppercase(), color = Color.White.copy(alpha = 0.4f), fontSize = 11.sp, fontWeight = FontWeight.Black, lineHeight = 13.sp)
                 }
             }
             Text(text = points, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic, lineHeight = 22.sp)

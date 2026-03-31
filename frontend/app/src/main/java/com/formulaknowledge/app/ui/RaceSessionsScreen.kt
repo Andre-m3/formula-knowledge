@@ -12,6 +12,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -19,40 +20,46 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.formulaknowledge.app.data.RaceWeekResponse
+import com.formulaknowledge.app.data.SessionTimes
 
 @Composable
-fun RaceSessionsScreen(raceWeek: RaceWeekResponse?) {
-    val isSprint = raceWeek?.is_sprint ?: false
-    
-    val sessions = if (isSprint) {
-        listOf(
-            SessionInfo("FREE PRACTICE 1", "FRIDAY", "11:30"),
-            SessionInfo("SPRINT QUALIFYING", "FRIDAY", "15:30"),
-            SessionInfo("SPRINT RACE", "SATURDAY", "11:00"),
-            SessionInfo("QUALIFYING", "SATURDAY", "15:00", isMajor = true),
-            SessionInfo("GRAND PRIX", "SUNDAY", "14:00", isMajor = true)
-        )
-    } else {
-        listOf(
-            SessionInfo("FREE PRACTICE 1", "FRIDAY", "12:30"),
-            SessionInfo("FREE PRACTICE 2", "FRIDAY", "16:00"),
-            SessionInfo("FREE PRACTICE 3", "SATURDAY", "11:30"),
-            SessionInfo("QUALIFYING", "SATURDAY", "15:00", isMajor = true),
-            SessionInfo("GRAND PRIX", "SUNDAY", "14:00", isMajor = true)
-        )
+fun RaceSessionsScreen(isSprint: Boolean, gpName: String, sessions: SessionTimes?) {
+    val sessionsList = remember(isSprint, sessions) {
+        val list = mutableListOf<SessionInfo>()
+        if (sessions == null) return@remember emptyList<SessionInfo>()
+
+        if (isSprint) {
+            sessions.fp1?.let { list.add(SessionInfo("FREE PRACTICE 1", "FRIDAY", it)) }
+            sessions.sprint_shootout?.let { list.add(SessionInfo("SPRINT QUALIFYING", "FRIDAY", it)) }
+            sessions.sprint_race?.let { list.add(SessionInfo("SPRINT RACE", "SATURDAY", it, isMajor = true)) }
+            sessions.quali?.let { list.add(SessionInfo("QUALIFYING", "SATURDAY", it, isMajor = true)) }
+            sessions.race?.let { list.add(SessionInfo("GRAND PRIX", "SUNDAY", it, isMajor = true)) }
+        } else {
+            sessions.fp1?.let { list.add(SessionInfo("FREE PRACTICE 1", "FRIDAY", it)) }
+            sessions.fp2?.let { list.add(SessionInfo("FREE PRACTICE 2", "FRIDAY", it)) }
+            sessions.fp3?.let { list.add(SessionInfo("FREE PRACTICE 3", "SATURDAY", it)) }
+            sessions.quali?.let { list.add(SessionInfo("QUALIFYING", "SATURDAY", it, isMajor = true)) }
+            sessions.race?.let { list.add(SessionInfo("GRAND PRIX", "SUNDAY", it, isMajor = true)) }
+        }
+        list
     }
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
         Spacer(modifier = Modifier.height(46.dp))
         Text(text = "RACE SESSIONS", color = Color.White, fontSize = 42.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic)
-        Text(text = if (isSprint) "SPRINT WEEKEND" else "STANDARD WEEKEND", color = Color(0xFF00FFCC), fontSize = 14.sp, fontWeight = FontWeight.Bold)
+        Text(text = "${gpName.uppercase().replace(" GRAND PRIX", "")} \u2022 ${if (isSprint) "SPRINT WEEKEND" else "STANDARD WEEKEND"}", color = Color(0xFF00FFCC), fontSize = 14.sp, fontWeight = FontWeight.Bold)
         
         Spacer(modifier = Modifier.height(24.dp))
 
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(bottom = 120.dp)) {
-            items(sessions) { session ->
-                SessionCard(session)
+        if (sessionsList.isEmpty()) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("Session times not available yet.", color = Color.White.copy(alpha = 0.5f))
+            }
+        } else {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(bottom = 120.dp)) {
+                items(sessionsList) { session ->
+                    SessionCard(session)
+                }
             }
         }
     }

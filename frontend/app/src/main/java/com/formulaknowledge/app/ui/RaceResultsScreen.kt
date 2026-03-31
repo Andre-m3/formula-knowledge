@@ -215,8 +215,8 @@ fun shortTeamName(fullName: String): String {
         lower.contains("mclaren") -> "McLaren"
         lower.contains("aston martin") -> "Aston Martin"
         lower.contains("alpine") -> "Alpine"
-        lower.contains("williams") -> "Williams"
-        lower.contains("racing bulls") || lower.contains("rb") || lower.contains("alphatauri") -> "RB"
+        lower.contains("williams") -> "Williams" // Assuming Williams is a separate team
+        lower.contains("racing bulls") || lower.contains("rb") || lower.contains("alphatauri") -> "Racing Bulls"
         lower.contains("audi") || lower.contains("sauber") || lower.contains("alfa romeo") -> "Audi"
         lower.contains("haas") -> "Haas"
         lower.contains("cadillac") -> "Cadillac"

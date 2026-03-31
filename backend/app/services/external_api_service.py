@@ -1,5 +1,6 @@
 import requests
 import time
+from datetime import datetime
 
 class ExternalApiService:
     _cache = {}
@@ -16,6 +17,87 @@ class ExternalApiService:
     @classmethod
     def _set_cache(cls, key, data):
         cls._cache[key] = (data, time.time())
+
+    @classmethod
+    def _standardize_team_name(cls, name: str) -> str:
+        lower_name = name.lower()
+        if "racing bulls" in lower_name or "rb" in lower_name or "alphatauri" in lower_name:
+            return "Racing Bulls"
+        return name
+
+    @classmethod
+    def get_calendar(cls, year: int = 2026):
+        cache_key = f"calendar_{year}"
+        cached = cls._get_cached(cache_key)
+        if cached: return cached
+        
+        url = f"https://api.jolpi.ca/ergast/f1/{year}/races.json?limit=100"
+        try:
+            response = requests.get(url, timeout=5)
+            response.raise_for_status()
+            races = response.json().get("MRData", {}).get("RaceTable", {}).get("Races", [])
+            
+            calendar = []
+            for race in races:
+                calendar.append({
+                    "round": int(race["round"]),
+                    "name": race["raceName"],
+                    "country": race.get("Circuit", {}).get("Location", {}).get("country", ""),
+                    "city": race.get("Circuit", {}).get("Location", {}).get("locality", ""),
+                    "circuit_name": race.get("Circuit", {}).get("circuitName", ""),
+                    "lat": float(race.get("Circuit", {}).get("Location", {}).get("lat", 0.0)),
+                    "lon": float(race.get("Circuit", {}).get("Location", {}).get("long", 0.0)),
+                    "date": datetime.strptime(race["date"], "%Y-%m-%d").date(),
+                    "cancelled": False
+                })
+            
+            if calendar:
+                cls._set_cache(cache_key, calendar)
+            return calendar
+        except Exception as e:
+            print(f"Errore API Calendar Jolpica: {e}")
+            return []
+
+    @classmethod
+    def get_schedule(cls, year: int = 2026):
+        cache_key = f"schedule_{year}"
+        cached = cls._get_cached(cache_key)
+        if cached: return cached
+        
+        url = f"https://api.jolpi.ca/ergast/f1/{year}/races.json?limit=100"
+        try:
+            response = requests.get(url, timeout=5)
+            response.raise_for_status()
+            data = response.json()
+            races = data.get("MRData", {}).get("RaceTable", {}).get("Races", [])
+            
+            schedule = {}
+            for race in races:
+                round_num = int(race["round"])
+                
+                def extract_time(session_data):
+                    if not session_data: return None
+                    t = session_data.get("time", "")
+                    return t[:5] if t else None
+
+                is_sprint_api = "Sprint" in race or "SprintQualifying" in race
+                
+                sessions = {
+                    "fp1": extract_time(race.get("FirstPractice")),
+                    "fp2": extract_time(race.get("SecondPractice")),
+                    "fp3": extract_time(race.get("ThirdPractice")),
+                    "sprint_shootout": extract_time(race.get("SprintQualifying")),
+                    "sprint_race": extract_time(race.get("Sprint")),
+                    "quali": extract_time(race.get("Qualifying")),
+                    "race": extract_time(race),
+                    "is_sprint_jolpica": is_sprint_api
+                }
+                schedule[round_num] = sessions
+            cls._set_cache(cache_key, schedule)
+            return schedule
+        except Exception as e:
+            print(f"Errore API Schedule Jolpica: {e}")
+            return {}
 
     @classmethod
     def get_driver_standings(cls, year: int = 2026):
@@ -44,7 +126,7 @@ class ExternalApiService:
                 if driver_name == "Andrea Kimi Antonelli":
                     driver_name = "Kimi Antonelli"
 
-                results.append({
+                results.append({ # type: ignore
                     "position": int(item["position"]),
                     "driver_name": driver_name,
                     "constructor_name": item["Constructors"][0]["name"],
@@ -78,7 +160,7 @@ class ExternalApiService:
             constructor_standings = standings_list[0].get("ConstructorStandings", [])
 
             results = []
-            for item in constructor_standings:
+            for item in constructor_standings: # type: ignore
                 results.append({
                     "position": int(item["position"]),
                     "constructor_name": item["Constructor"]["name"],
@@ -122,7 +204,7 @@ class ExternalApiService:
                 if driver_name == "Andrea Kimi Antonelli":
                     driver_name = "Kimi Antonelli"
 
-                results.append({
+                results.append({ # type: ignore
                     "position": int(item["position"]),
                     "driver": driver_name,
                     "team": item["Constructor"]["name"],
