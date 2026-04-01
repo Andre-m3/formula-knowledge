@@ -470,8 +470,19 @@ fun CircuitDetailScreen(round: Int, onNavigateToResults: (Int, String) -> Unit, 
 @Composable
 fun HistoricalDataCard(data: CircuitDetailResponse) {
     Column(modifier = Modifier.fillMaxWidth()) {
-        Text(text = "HISTORICAL RECORDS", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic)
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(8.dp))
+        HorizontalDivider(color = Color.White.copy(alpha = 0.1f), thickness = 1.dp)
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Text(
+            text = "HISTORICAL DATA", 
+            color = Color(0xFF00FFCC), 
+            fontSize = 28.sp, 
+            fontWeight = FontWeight.Black, 
+            fontStyle = FontStyle.Italic,
+            letterSpacing = (-1.5).sp
+        )
+        Spacer(modifier = Modifier.height(16.dp))
 
         HistoricalStatItem("LAP RECORD", data.record, Icons.Default.Timer)
         HistoricalStatItem("PREVIOUS WINNER", data.previous_winner, Icons.Default.EmojiEvents)
@@ -484,25 +495,26 @@ fun HistoricalDataCard(data: CircuitDetailResponse) {
 @Composable
 fun HistoricalStatItem(label: String, value: String, icon: androidx.compose.ui.graphics.vector.ImageVector) {
     Surface(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
+        shape = RoundedCornerShape(12.dp),
         color = Color.White.copy(alpha = 0.03f),
         border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.05f))
     ) {
-        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             Surface(
                 shape = CircleShape,
                 color = Color(0xFF00FFCC).copy(alpha = 0.1f),
-                modifier = Modifier.size(36.dp)
+                modifier = Modifier.size(32.dp)
             ) {
                 Box(contentAlignment = Alignment.Center) {
-                    Icon(icon, contentDescription = null, tint = Color(0xFF00FFCC), modifier = Modifier.size(18.dp))
+                    Icon(icon, contentDescription = null, tint = Color(0xFF00FFCC), modifier = Modifier.size(16.dp))
                 }
             }
             Spacer(modifier = Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(text = label, color = Color.White.copy(alpha = 0.4f), fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 0.5.sp)
-                Text(text = value.uppercase(), color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.ExtraBold)
+                Text(text = label, color = Color(0xFF00FFCC), fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(text = value.uppercase(), color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic)
             }
         }
     }
@@ -678,7 +690,7 @@ fun FloatingBottomBar(currentScreen: AppScreen, onNavigate: (AppScreen) -> Unit)
     )
     val barWidth = 252.dp
     val barHeight = 55.dp
-    Surface(modifier = Modifier.height(barHeight).width(barWidth), shape = RoundedCornerShape(27.dp), color = Color(0xFF1E0A0A).copy(alpha = 0.92f), border = BorderStroke(1.2.dp, Color(0xFFFF0033).copy(alpha = 0.9f))) {
+    Surface(modifier = Modifier.height(barHeight).width(barWidth), shape = CircleShape, color = Color(0xFF1E0A0A).copy(alpha = 0.90f)) {
         Box(modifier = Modifier.fillMaxSize()) {
             val selectedIndex = items.indexOfFirst { it.third == when(currentScreen) {
                 AppScreen.CALENDAR -> AppScreen.CALENDAR

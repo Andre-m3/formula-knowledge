@@ -47,8 +47,24 @@ fun RaceSessionsScreen(isSprint: Boolean, gpName: String, sessions: SessionTimes
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
         Spacer(modifier = Modifier.height(46.dp))
-        Text(text = "RACE SESSIONS", color = Color.White, fontSize = 42.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic)
-        Text(text = "${gpName.uppercase().replace(" GRAND PRIX", "")} \u2022 ${if (isSprint) "SPRINT WEEKEND" else "STANDARD WEEKEND"}", color = Color(0xFF00FFCC), fontSize = 14.sp, fontWeight = FontWeight.Bold)
+        Text(
+            text = "RACE\nSESSIONS",
+            color = Color.White,
+            fontSize = 54.sp,
+            fontWeight = FontWeight.Black,
+            fontStyle = FontStyle.Italic,
+            letterSpacing = (-3).sp,
+            lineHeight = 44.sp
+        )
+        Text(
+            text = "${gpName.uppercase().replace(" GRAND PRIX", "")} \u2022 ${if (isSprint) "SPRINT WEEKEND" else "STANDARD WEEKEND"}",
+            color = Color(0xFF00FFCC),
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Black,
+            fontStyle = FontStyle.Italic,
+            letterSpacing = (-1).sp,
+            modifier = Modifier.offset(y = (-8).dp)
+        )
         
         Spacer(modifier = Modifier.height(24.dp))
 

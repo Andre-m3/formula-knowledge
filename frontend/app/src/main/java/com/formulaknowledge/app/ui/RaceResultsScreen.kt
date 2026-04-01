@@ -57,13 +57,13 @@ fun RaceResultsScreen(
         Spacer(modifier = Modifier.height(46.dp))
 
         Text(
-            text = "RACE RESULTS",
+            text = "RACE\nRESULTS",
             color = Color.White,
             fontSize = 54.sp,
             fontWeight = FontWeight.Black,
             fontStyle = FontStyle.Italic,
             letterSpacing = (-3).sp,
-            lineHeight = 50.sp
+            lineHeight = 44.sp
         )
         Text(
             text = "${gpName.uppercase().replace(" GRAND PRIX", "")} GP",
@@ -79,13 +79,11 @@ fun RaceResultsScreen(
 
         if (isLoading) {
             Column {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.Bottom) {
-                    ShimmerPodiumStep(height = 110.dp)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    ShimmerPodiumStep(height = 135.dp)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    ShimmerPodiumStep(height = 90.dp)
-                }
+                ShimmerPodiumHorizontalCard(height = 96.dp)
+                Spacer(modifier = Modifier.height(12.dp))
+                ShimmerPodiumHorizontalCard(height = 80.dp)
+                Spacer(modifier = Modifier.height(12.dp))
+                ShimmerPodiumHorizontalCard(height = 80.dp)
                 Spacer(modifier = Modifier.height(24.dp))
                 repeat(7) { ShimmerResultRow() }
             }
@@ -95,7 +93,7 @@ fun RaceResultsScreen(
 
             LazyColumn(contentPadding = PaddingValues(bottom = 120.dp)) {
                 item {
-                    Podium(podiumResults, onDriverClick)
+                    PodiumList(podiumResults, onDriverClick)
                     Spacer(modifier = Modifier.height(24.dp))
                 }
 
@@ -108,52 +106,139 @@ fun RaceResultsScreen(
 }
 
 @Composable
-fun Podium(results: List<RaceResultResponse>, onDriverClick: (String) -> Unit) {
-    val p1 = results.find { it.position == 1 }
-    val p2 = results.find { it.position == 2 }
-    val p3 = results.find { it.position == 3 }
+fun PodiumList(results: List<RaceResultResponse>, onDriverClick: (String) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        val p1 = results.find { it.position == 1 }
+        val p2 = results.find { it.position == 2 }
+        val p3 = results.find { it.position == 3 }
 
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.Bottom
-    ) {
-        if (p2 != null) PodiumStep(p2, 125.dp, Color(0xFFC0C0C0), onDriverClick)
-        Spacer(modifier = Modifier.width(4.dp))
-        if (p1 != null) PodiumStep(p1, 155.dp, Color(0xFFFFD700), onDriverClick)
-        Spacer(modifier = Modifier.width(4.dp))
-        if (p3 != null) PodiumStep(p3, 110.dp, Color(0xFFCD7F32), onDriverClick)
+        p1?.let { PodiumHorizontalCard(it, Color(0xFFFFD700), onDriverClick) }
+        p2?.let { PodiumHorizontalCard(it, Color(0xFFC0C0C0), onDriverClick) }
+        p3?.let { PodiumHorizontalCard(it, Color(0xFFCD7F32), onDriverClick) }
     }
 }
 
 @Composable
-fun RowScope.PodiumStep(result: RaceResultResponse, height: androidx.compose.ui.unit.Dp, color: Color, onDriverClick: (String) -> Unit) {
+fun PodiumHorizontalCard(result: RaceResultResponse, color: Color, onDriverClick: (String) -> Unit) {
     val driverNameParts = result.driver.split(" ")
     val lastName = driverNameParts.lastOrNull()?.uppercase() ?: ""
-    val teamName = shortTeamName(result.team)
-
-    Column(
-        modifier = Modifier.weight(1f).clickable { onDriverClick(result.driver) },
-        horizontalAlignment = Alignment.CenterHorizontally
+    val firstName = driverNameParts.dropLast(1).joinToString(" ").uppercase()
+    val teamName = shortTeamName(result.team).uppercase()
+    
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(if (result.position == 1) 96.dp else 80.dp)
+            .clickable { onDriverClick(result.driver) },
+        shape = RoundedCornerShape(20.dp),
+        color = Color.White.copy(alpha = 0.02f),
+        border = BorderStroke(if (result.position == 1) 2.dp else 1.dp, color.copy(alpha = if (result.position == 1) 0.8f else 0.4f))
     ) {
-        Text(text = lastName, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Black, lineHeight = 18.sp)
-        Text(text = teamName, color = Color.White.copy(alpha = 0.5f), fontSize = 10.sp, maxLines = 1, lineHeight = 12.sp)
-        Spacer(modifier = Modifier.height(8.dp))
-        Surface(
-            modifier = Modifier.fillMaxWidth().height(height),
-            shape = RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp),
-            color = Color.White.copy(alpha = 0.05f),
-            border = BorderStroke(1.dp, color.copy(alpha = 0.6f))
-        ) {
-            Column(
-                modifier = Modifier.fillMaxSize().padding(8.dp).fillMaxHeight(),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
+        Box(modifier = Modifier.fillMaxSize()) {
+            androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
+                drawRect(
+                    brush = Brush.horizontalGradient(
+                        colors = listOf(color.copy(alpha = 0.15f), Color.Transparent),
+                        startX = 0f,
+                        endX = size.width * 0.6f
+                    )
+                )
+            }
+            
+            Text(
+                text = "P${result.position}",
+                color = color.copy(alpha = 0.05f),
+                fontSize = if (result.position == 1) 110.sp else 90.sp,
+                fontWeight = FontWeight.Black,
+                fontStyle = FontStyle.Italic,
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .offset(x = 20.dp, y = 10.dp)
+            )
+
+            Row(
+                modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(text = result.position.toString(), color = color, fontSize = 42.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic, lineHeight = 44.sp)
-                Text(text = "${result.points} PTS", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, lineHeight = 14.sp)
-                if (result.position > 1 && !isDnfOrDns(result.time)) {
-                    Text(text = result.time, color = Color.White.copy(alpha = 0.5f), fontSize = 9.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 2.dp))
+                Surface(
+                    color = color,
+                    shape = CircleShape,
+                    modifier = Modifier.size(if (result.position == 1) 42.dp else 34.dp),
+                    shadowElevation = if (result.position == 1) 8.dp else 0.dp
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text(
+                            text = result.position.toString(),
+                            color = Color.Black,
+                            fontSize = if (result.position == 1) 24.sp else 18.sp,
+                            fontWeight = FontWeight.Black,
+                            fontStyle = FontStyle.Italic
+                        )
+                    }
+                }
+                
+                Spacer(modifier = Modifier.width(16.dp))
+                
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = firstName,
+                        color = Color.White.copy(alpha = 0.6f),
+                        fontSize = if (result.position == 1) 11.sp else 9.sp,
+                        fontWeight = FontWeight.Black,
+                        letterSpacing = 1.sp,
+                        modifier = Modifier.offset(y = 2.dp)
+                    )
+                    Text(
+                        text = lastName,
+                        color = Color.White,
+                        fontSize = if (result.position == 1) 24.sp else 20.sp,
+                        fontWeight = FontWeight.Black,
+                        fontStyle = FontStyle.Italic,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = teamName,
+                        color = color,
+                        fontSize = if (result.position == 1) 11.sp else 10.sp,
+                        fontWeight = FontWeight.Black,
+                        letterSpacing = 0.5.sp
+                    )
+                }
+                
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        text = "${result.points} PTS",
+                        color = Color.White,
+                        fontSize = if (result.position == 1) 24.sp else 18.sp,
+                        fontWeight = FontWeight.Black,
+                        fontStyle = FontStyle.Italic
+                    )
+                    if (result.position == 1) {
+                        Surface(
+                            color = color.copy(alpha = 0.2f), 
+                            shape = RoundedCornerShape(6.dp), 
+                            modifier = Modifier.padding(top = 6.dp)
+                        ) {
+                            Text(
+                                text = "WINNER", 
+                                color = color, 
+                                fontSize = 11.sp, 
+                                fontWeight = FontWeight.Black, 
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                letterSpacing = 1.sp
+                            )
+                        }
+                    } else if (!isDnfOrDns(result.time)) {
+                        Text(
+                            text = result.time,
+                            color = Color.White.copy(alpha = 0.5f),
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Black,
+                            modifier = Modifier.padding(top = 4.dp)
+                        )
+                    }
                 }
             }
         }
@@ -161,7 +246,7 @@ fun RowScope.PodiumStep(result: RaceResultResponse, height: androidx.compose.ui.
 }
 
 @Composable
-fun ShimmerPodiumStep(height: androidx.compose.ui.unit.Dp) {
+fun ShimmerPodiumHorizontalCard(height: androidx.compose.ui.unit.Dp) {
     val shimmerColors = listOf(Color.White.copy(alpha = 0.05f), Color.White.copy(alpha = 0.12f), Color.White.copy(alpha = 0.05f))
     val transition = rememberInfiniteTransition(label = "")
     val translateAnim = transition.animateFloat(initialValue = 0f, targetValue = 1000f, animationSpec = infiniteRepeatable(animation = tween(1200, easing = LinearEasing), repeatMode = RepeatMode.Restart), label = "")
@@ -170,7 +255,7 @@ fun ShimmerPodiumStep(height: androidx.compose.ui.unit.Dp) {
         start = Offset.Zero,
         end = Offset(x = translateAnim.value, y = translateAnim.value)
     )
-    Box(modifier = Modifier.width(100.dp).height(height).background(brush, RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)))
+    Box(modifier = Modifier.fillMaxWidth().height(height).background(brush, RoundedCornerShape(16.dp)))
 }
 
 @Composable
