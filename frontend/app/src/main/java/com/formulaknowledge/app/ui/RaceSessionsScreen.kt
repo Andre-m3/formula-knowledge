@@ -21,6 +21,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.formulaknowledge.app.data.SessionTimes
+import com.formulaknowledge.app.utils.TimeUtils
 
 @Composable
 fun RaceSessionsScreen(isSprint: Boolean, gpName: String, sessions: SessionTimes?) {
@@ -29,17 +30,17 @@ fun RaceSessionsScreen(isSprint: Boolean, gpName: String, sessions: SessionTimes
         if (sessions == null) return@remember emptyList<SessionInfo>()
 
         if (isSprint) {
-            sessions.fp1?.let { list.add(SessionInfo("FREE PRACTICE 1", "FRIDAY", it)) }
-            sessions.sprint_shootout?.let { list.add(SessionInfo("SPRINT QUALIFYING", "FRIDAY", it)) }
-            sessions.sprint_race?.let { list.add(SessionInfo("SPRINT RACE", "SATURDAY", it, isMajor = true)) }
-            sessions.quali?.let { list.add(SessionInfo("QUALIFYING", "SATURDAY", it, isMajor = true)) }
-            sessions.race?.let { list.add(SessionInfo("GRAND PRIX", "SUNDAY", it, isMajor = true)) }
+            sessions.fp1?.let { list.add(SessionInfo("FREE PRACTICE 1", "FRIDAY", TimeUtils.formatUtcToLocalTime(it))) }
+            sessions.sprint_shootout?.let { list.add(SessionInfo("SPRINT QUALIFYING", "FRIDAY", TimeUtils.formatUtcToLocalTime(it))) }
+            sessions.sprint_race?.let { list.add(SessionInfo("SPRINT RACE", "SATURDAY", TimeUtils.formatUtcToLocalTime(it), isMajor = true)) }
+            sessions.quali?.let { list.add(SessionInfo("QUALIFYING", "SATURDAY", TimeUtils.formatUtcToLocalTime(it), isMajor = true)) }
+            sessions.race?.let { list.add(SessionInfo("GRAND PRIX", "SUNDAY", TimeUtils.formatUtcToLocalTime(it), isMajor = true)) }
         } else {
-            sessions.fp1?.let { list.add(SessionInfo("FREE PRACTICE 1", "FRIDAY", it)) }
-            sessions.fp2?.let { list.add(SessionInfo("FREE PRACTICE 2", "FRIDAY", it)) }
-            sessions.fp3?.let { list.add(SessionInfo("FREE PRACTICE 3", "SATURDAY", it)) }
-            sessions.quali?.let { list.add(SessionInfo("QUALIFYING", "SATURDAY", it, isMajor = true)) }
-            sessions.race?.let { list.add(SessionInfo("GRAND PRIX", "SUNDAY", it, isMajor = true)) }
+            sessions.fp1?.let { list.add(SessionInfo("FREE PRACTICE 1", "FRIDAY", TimeUtils.formatUtcToLocalTime(it))) }
+            sessions.fp2?.let { list.add(SessionInfo("FREE PRACTICE 2", "FRIDAY", TimeUtils.formatUtcToLocalTime(it))) }
+            sessions.fp3?.let { list.add(SessionInfo("FREE PRACTICE 3", "SATURDAY", TimeUtils.formatUtcToLocalTime(it))) }
+            sessions.quali?.let { list.add(SessionInfo("QUALIFYING", "SATURDAY", TimeUtils.formatUtcToLocalTime(it), isMajor = true)) }
+            sessions.race?.let { list.add(SessionInfo("GRAND PRIX", "SUNDAY", TimeUtils.formatUtcToLocalTime(it), isMajor = true)) }
         }
         list
     }

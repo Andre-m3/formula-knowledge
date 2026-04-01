@@ -140,7 +140,7 @@ fun CalendarRaceCard(race: CalendarResponse, onClick: () -> Unit) {
                 style = if (isCancelled) TextStyle(textDecoration = TextDecoration.LineThrough) else TextStyle.Default
             )
             Text(
-                text = "${race.city.uppercase()}, ${race.country}",
+                text = "${race.city.uppercase().replace("MONTE CARLO", "MONTECARLO")}, ${race.country}",
                 color = if (isCancelled) Color.White.copy(alpha = 0.1f) else if (isFuture) Color.White.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.5f),
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Medium,

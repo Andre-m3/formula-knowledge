@@ -121,14 +121,9 @@ class FormulaRepository(private val database: FormulaDatabase) {
         try {
             val existingData = currentRaceWeek.firstOrNull()
             val now = System.currentTimeMillis()
-            val cacheDuration = 1 * 60 * 60 * 1000 // 1 ora di cache invece di 24h per avere meteo e orari sempre freschi
 
-            // Se abbiamo dati e sono più recenti di 1 ora, non facciamo nulla.
-            if (existingData != null && (now - existingData.weather_last_updated < cacheDuration)) {
-                return
-            }
-
-            // Altrimenti, scarichiamo dati freschi
+            // Richiediamo sempre dati freschi all'API all'avvio.
+            // Non c'è rischio di spam perché il Backend Python usa una cache di 30 minuti!
             val apiData = RetrofitClient.apiService.getCurrentRaceWeek()
             val weatherJson = Gson().toJson(apiData.weather_forecast)
             val entity = RaceWeekEntity(

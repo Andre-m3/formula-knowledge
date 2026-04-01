@@ -25,6 +25,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -34,6 +35,7 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -77,7 +79,7 @@ fun UpdatesScreen() {
     var selectedGpName by remember { mutableStateOf("") }
     var selectedDriverName by remember { mutableStateOf("") }
     var selectedCircuitRound by remember { mutableIntStateOf(0) }
-    
+
     var selectedSprintForSessions by remember { mutableStateOf(false) }
     var selectedGpForSessions by remember { mutableStateOf("") }
     var selectedSessions by remember { mutableStateOf<SessionTimes?>(null) }
@@ -89,13 +91,19 @@ fun UpdatesScreen() {
     val nestedScrollConnection = remember {
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                if (available.y < -15) { isBottomBarVisible = false } 
+                if (available.y < -15) { isBottomBarVisible = false }
                 else if (available.y > 15) { isBottomBarVisible = true }
+                return Offset.Zero
+            }
+            
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                // Se l'utente tenta di scorrere verso il basso ma ha raggiunto la fine della pagina (available.y negativo)
+                if (available.y < -10) { isBottomBarVisible = true }
                 return Offset.Zero
             }
         }
     }
-    
+
     LaunchedEffect(currentScreen) {
         isBottomBarVisible = true
     }
@@ -120,14 +128,21 @@ fun UpdatesScreen() {
 
     LaunchedEffect(Unit) {
         launch { repository.refreshCurrentRaceWeek() }
-        
+
+        // Lanciamo il pre-fetch di TUTTO il calendario, sessioni e risultati storici in background
+        // all'avvio dell'app. Così sarà tutto disponibile anche offline!
+        launch { repository.refreshCalendar() }
+
+        // Pre-fetch delle classifiche costruttori e piloti all'avvio!
+        launch { repository.refreshStandings() }
+
         try {
             isLoadingUpdates = true
             Log.d("API_CALL", "Requesting Car Updates...")
             val wrapper = RetrofitClient.apiService.getLatestCarUpdates()
             updatesWrapper = wrapper
             Log.d("API_CALL", "Success: ${wrapper.gp} updates loaded")
-        } catch (e: Exception) { 
+        } catch (e: Exception) {
             Log.e("API_ERROR", "Error during initial data fetch: ${e.message}", e)
         } finally {
             isLoadingUpdates = false
@@ -161,7 +176,7 @@ fun UpdatesScreen() {
                         } else if (it == AppScreen.UPDATES_LIST && updatesWrapper?.status == "not_ready") {
                             showNotReadyDialog = true
                         } else {
-                            currentScreen = it 
+                            currentScreen = it
                         }
                     })
                     AppScreen.CALENDAR -> CalendarScreen(
@@ -178,7 +193,7 @@ fun UpdatesScreen() {
                     )
                     AppScreen.PERSONAL -> PersonalScreen()
                     AppScreen.UPDATES_LIST -> UpdatesListScreen(updatesWrapper?.data ?: emptyList(), isLoadingUpdates, onTeamClick = { selectedTeam = it; currentScreen = AppScreen.TEAM_DETAIL })
-                    AppScreen.TEAM_DETAIL -> TeamUpdateDetailScreen(selectedTeam!!)                    
+                    AppScreen.TEAM_DETAIL -> TeamUpdateDetailScreen(selectedTeam!!)
                     AppScreen.WEATHER_DETAIL -> WeatherDetailScreen(raceWeek, raceWeekEntity)
                     AppScreen.RESULTS -> RaceResultsScreen(selectedRound, selectedGpName, onDriverClick = { name ->
                         selectedDriverName = name
@@ -227,11 +242,11 @@ fun UpdatesScreen() {
                     )
 
                     Box(modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 20.dp)) {
-                        FloatingBottomBar(currentScreen = currentScreen, onNavigate = { 
+                        FloatingBottomBar(currentScreen = currentScreen, onNavigate = {
                             if (it == AppScreen.UPDATES_LIST && updatesWrapper?.status == "not_ready") {
                                 showNotReadyDialog = true
                             } else {
-                                currentScreen = it 
+                                currentScreen = it
                             }
                         })
                     }
@@ -321,7 +336,7 @@ fun CircuitDetailScreen(round: Int, onNavigateToResults: (Int, String) -> Unit, 
                         Text(
                             text = displayGpName, color = Color.White, fontSize = 58.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic, letterSpacing = (-5).sp, maxLines = 1, softWrap = false
                         )
-                        
+
                         val dates = data.dates
                         val dateRangeStr = if (dates.size >= 3) {
                             val startDay = dates[0].substringBefore(" ").trimStart('0')
@@ -330,59 +345,92 @@ fun CircuitDetailScreen(round: Int, onNavigateToResults: (Int, String) -> Unit, 
                             "$startDay-$endDay $month"
                         } else { "" }
 
-                        Text(text = "$dateRangeStr \u2022 ${data.location.uppercase()}", color = Color(0xFF00FFCC), fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.offset(y = (-4).dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        val locationStr = data.location.uppercase().replace("MONTE CARLO", "MONTECARLO")
+                        Text(
+                            text = "$dateRangeStr \u2022 $locationStr", 
+                            color = Color(0xFF00FFCC), 
+                            fontSize = 18.sp, 
+                            fontWeight = FontWeight.Black, 
+                            fontStyle = FontStyle.Italic, 
+                            letterSpacing = (-1).sp,
+                            modifier = Modifier.offset(y = (-8).dp), 
+                            maxLines = 1, 
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // BOX PER IL LAYOUT DEL CIRCUITO (SVG) CHE AGGIUNGEREMO DOPO
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(180.dp)
-                        .background(Color.White.copy(alpha = 0.02f), RoundedCornerShape(20.dp))
-                        .border(1.dp, Color.White.copy(alpha = 0.05f), RoundedCornerShape(20.dp)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    // Carichiamo dinamicamente il layout del tracciato
-                    val resourceName = "track_r${data.round}"
-                    val resourceId = remember(resourceName) {
-                        context.resources.getIdentifier(resourceName, "drawable", context.packageName)
-                    }
-
-                    if (resourceId != 0) {
-                        Image(
-                            painter = painterResource(id = resourceId),
-                            contentDescription = "Layout del tracciato di ${data.circuit_name}",
-                            modifier = Modifier.fillMaxSize().padding(24.dp),
-                            colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(Color(0xFF00FFCC).copy(alpha = 0.8f))
-                        )
-                    } else {
-                        Icon(
-                            imageVector = Icons.Default.Map,
-                            contentDescription = "Layout del tracciato non disponibile",
-                            modifier = Modifier.size(80.dp),
-                            tint = Color.White.copy(alpha = 0.3f)
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(20.dp))
-
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(14.dp), contentPadding = PaddingValues(bottom = 120.dp)) {
-                    item { 
-                        Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                            Box(modifier = Modifier.weight(1f)) { CircuitTechnicalCard("TRACK LENGTH", data.length) }
-                            Box(modifier = Modifier.weight(1f)) { CircuitTechnicalCard("RACE DISTANCE", "${data.laps} LAPS") }
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 120.dp)) {
+                    item {
+                        // CARD DEL TRACCIATO E DATI TECNICI
+                        Surface(
+                            modifier = Modifier.fillMaxWidth().height(180.dp),
+                            shape = RoundedCornerShape(20.dp),
+                            color = Color.White.copy(alpha = 0.02f),
+                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f))
+                        ) {
+                            Box(modifier = Modifier.fillMaxSize()) {
+                                // Sfondo tecnico a griglia per profondità
+                                Canvas(modifier = Modifier.fillMaxSize().alpha(0.06f)) {
+                                    val gridSize = 16.dp.toPx()
+                                    for (x in 0..size.width.toInt() step gridSize.toInt()) {
+                                        drawLine(Color.White, Offset(x.toFloat(), 0f), Offset(x.toFloat(), size.height), strokeWidth = 1f)
+                                    }
+                                    for (y in 0..size.height.toInt() step gridSize.toInt()) {
+                                        drawLine(Color.White, Offset(0f, y.toFloat()), Offset(size.width, y.toFloat()), strokeWidth = 1f)
+                                    }
+                                }
+                                
+                                Row(modifier = Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
+                                    // Layout Tracciato (Sinistra)
+                                    Box(
+                                        modifier = Modifier.weight(1.3f).fillMaxHeight().padding(16.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        val resourceName = "track_r${data.round}"
+                                        val resourceId = remember(resourceName) {
+                                            context.resources.getIdentifier(resourceName, "drawable", context.packageName)
+                                        }
+        
+                                        if (resourceId != 0) {
+                                            Image(
+                                                painter = painterResource(id = resourceId),
+                                                contentDescription = "Layout del tracciato di ${data.circuit_name}",
+                                                modifier = Modifier.fillMaxSize(),
+                                                colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(Color(0xFF00FFCC).copy(alpha = 0.9f))
+                                            )
+                                        } else {
+                                            Icon(
+                                                imageVector = Icons.Default.Map,
+                                                contentDescription = "Layout del tracciato non disponibile",
+                                                modifier = Modifier.size(60.dp),
+                                                tint = Color.White.copy(alpha = 0.3f)
+                                            )
+                                        }
+                                    }
+                                    
+                                    // Dati (Destra)
+                                    Column(
+                                        modifier = Modifier.weight(0.7f).fillMaxHeight().background(Color.White.copy(alpha = 0.03f)).padding(16.dp),
+                                        verticalArrangement = Arrangement.Center
+                                    ) {
+                                        Text(text = "LENGTH", color = Color(0xFF00FFCC), fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
+                                        Text(text = data.length, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        Spacer(modifier = Modifier.height(16.dp))
+                                        Text(text = "DISTANCE", color = Color(0xFF00FFCC), fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
+                                        Text(text = "${data.laps} LAPS", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold)
+                                    }
+                                }
+                            }
                         }
                     }
                     
-                    item { HistoricalDataCard(data) }
-                    
-                    if (data.status == "future" || data.status == "current") {
-                        item {
-                            Spacer(modifier = Modifier.height(10.dp))
+                    item {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        // Pulsante delle sessioni o dei risultati
+                        if (data.status == "future" || data.status == "current") {
                             Button(
                                 onClick = { onNavigateToSessions(data.is_sprint, data.gp_name, data.sessions) },
                                 modifier = Modifier.fillMaxWidth().height(56.dp),
@@ -395,12 +443,7 @@ fun CircuitDetailScreen(round: Int, onNavigateToResults: (Int, String) -> Unit, 
                                     Text("PROSSIME SESSIONI", color = Color.Black, fontWeight = FontWeight.Black, fontSize = 16.sp)
                                 }
                             }
-                        }
-                    }
-
-                    if (data.status == "past") {
-                        item {
-                            Spacer(modifier = Modifier.height(10.dp))
+                        } else if (data.status == "past") {
                             Button(
                                 onClick = { onNavigateToResults(data.round, data.gp_name) },
                                 modifier = Modifier.fillMaxWidth().height(56.dp),
@@ -414,7 +457,10 @@ fun CircuitDetailScreen(round: Int, onNavigateToResults: (Int, String) -> Unit, 
                                 }
                             }
                         }
+                        Spacer(modifier = Modifier.height(12.dp))
                     }
+                    
+                    item { HistoricalDataCard(data) }
                 }
             }
         }
@@ -422,50 +468,43 @@ fun CircuitDetailScreen(round: Int, onNavigateToResults: (Int, String) -> Unit, 
 }
 
 @Composable
-fun CircuitTechnicalCard(label: String, value: String) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        color = Color.White.copy(alpha = 0.05f),
-        border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.1f))
-    ) {
-        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
-            Text(text = label, color = Color(0xFF00FFCC), fontSize = 11.sp, fontWeight = FontWeight.Black, letterSpacing = 1.2.sp)
-            Text(text = value, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-    }
-}
-
-@Composable
 fun HistoricalDataCard(data: CircuitDetailResponse) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(24.dp),
-        color = Color(0xFF1E0A0A).copy(alpha = 0.6f),
-        border = BorderStroke(1.dp, Color(0xFF00FFCC).copy(alpha = 0.3f))
-    ) {
-        Column(modifier = Modifier.padding(20.dp)) {
-            Text(text = "HISTORICAL DATA", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic)
-            Spacer(modifier = Modifier.height(16.dp))
-            
-            HistoricalRow("LAP RECORD", data.record)
-            HorizontalDivider(color = Color.White.copy(alpha = 0.05f), modifier = Modifier.padding(vertical = 12.dp))
-            HistoricalRow("PREVIOUS WINNER", data.previous_winner)
-            HorizontalDivider(color = Color.White.copy(alpha = 0.05f), modifier = Modifier.padding(vertical = 12.dp))
-            HistoricalRow("MOST WINS (DRIVER)", data.most_driver_wins)
-            HorizontalDivider(color = Color.White.copy(alpha = 0.05f), modifier = Modifier.padding(vertical = 12.dp))
-            HistoricalRow("MOST WINS (TEAM)", data.most_constructor_wins)
-            HorizontalDivider(color = Color.White.copy(alpha = 0.05f), modifier = Modifier.padding(vertical = 12.dp))
-            HistoricalRow("MOST POLES", data.most_poles)
-        }
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(text = "HISTORICAL RECORDS", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic)
+        Spacer(modifier = Modifier.height(12.dp))
+
+        HistoricalStatItem("LAP RECORD", data.record, Icons.Default.Timer)
+        HistoricalStatItem("PREVIOUS WINNER", data.previous_winner, Icons.Default.EmojiEvents)
+        HistoricalStatItem("MOST WINS (DRIVER)", data.most_driver_wins, Icons.Default.Person)
+        HistoricalStatItem("MOST WINS (TEAM)", data.most_constructor_wins, Icons.Default.PrecisionManufacturing)
+        HistoricalStatItem("MOST POLES", data.most_poles, Icons.Default.Flag)
     }
 }
 
 @Composable
-fun HistoricalRow(label: String, value: String) {
-    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-        Text(text = label, color = Color.White.copy(alpha = 0.5f), fontSize = 12.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
-        Text(text = value.uppercase(), color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.ExtraBold, textAlign = TextAlign.End, modifier = Modifier.weight(1f).padding(start = 16.dp))
+fun HistoricalStatItem(label: String, value: String, icon: androidx.compose.ui.graphics.vector.ImageVector) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        shape = RoundedCornerShape(16.dp),
+        color = Color.White.copy(alpha = 0.03f),
+        border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.05f))
+    ) {
+        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Surface(
+                shape = CircleShape,
+                color = Color(0xFF00FFCC).copy(alpha = 0.1f),
+                modifier = Modifier.size(36.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(icon, contentDescription = null, tint = Color(0xFF00FFCC), modifier = Modifier.size(18.dp))
+                }
+            }
+            Spacer(modifier = Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(text = label, color = Color.White.copy(alpha = 0.4f), fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 0.5.sp)
+                Text(text = value.uppercase(), color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.ExtraBold)
+            }
+        }
     }
 }
 
@@ -677,6 +716,8 @@ fun FloatingBottomBar(currentScreen: AppScreen, onNavigate: (AppScreen) -> Unit)
 
 @Composable
 fun HomeScreen(raceWeek: RaceWeekResponse?, isLoading: Boolean, onNavigate: (AppScreen) -> Unit) {
+    val context = LocalContext.current
+
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
         Spacer(modifier = Modifier.height(26.dp)) 
         Box(modifier = Modifier.fillMaxWidth().height(160.dp), contentAlignment = Alignment.BottomStart) {
@@ -695,11 +736,9 @@ fun HomeScreen(raceWeek: RaceWeekResponse?, isLoading: Boolean, onNavigate: (App
                             Text(text = "R${raceWeek?.round_number ?: "3"}", color = Color.Black, fontSize = 14.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp))
                         }
                         Spacer(modifier = Modifier.width(10.dp))
-                        Text(text = "NEXT EVENT", color = Color.White.copy(alpha = 0.5f), fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                            Text(text = "NEXT EVENT", color = Color.White.copy(alpha = 0.5f), fontSize = 16.sp, fontWeight = FontWeight.Bold)
                     }
                     Text(text = displayGpName, color = Color.White, fontSize = 58.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic, letterSpacing = (-5).sp, maxLines = 1, softWrap = false)
-                    
-                    Spacer(modifier = Modifier.height(8.dp))
                     
                     val dates = raceWeek?.dates
                     val dateRangeStr = if (!dates.isNullOrEmpty() && dates.size >= 3) {
@@ -710,22 +749,38 @@ fun HomeScreen(raceWeek: RaceWeekResponse?, isLoading: Boolean, onNavigate: (App
                     } else { "3-5 APRIL" }
                     val cityStr = raceWeek?.city?.uppercase() ?: "SUZUKA"
                     val countryStr = raceWeek?.country ?: "Japan"
-                    val locationStr = "$cityStr ($countryStr)"
-                    Text(text = "$dateRangeStr \u2022 $locationStr", color = Color(0xFF00FFCC), fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.offset(y = (-4).dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    val locationStr = "$cityStr ($countryStr)".replace("MONTE CARLO", "MONTECARLO")
+                    Text(
+                        text = "$dateRangeStr \u2022 $locationStr", 
+                        color = Color(0xFF00FFCC), 
+                        fontSize = 18.sp, 
+                        fontWeight = FontWeight.Black, 
+                        fontStyle = FontStyle.Italic, 
+                        letterSpacing = (-1).sp,
+                        modifier = Modifier.offset(y = (-8).dp), 
+                        maxLines = 1, 
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
             }
         }
+        
         Spacer(modifier = Modifier.height(26.dp)) 
+        
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) { 
             FullWidthGlassCard(title = "RACE SESSIONS", content = "See all schedule...", accentColor = Color(0xFF00FFCC), isHighlighted = true, onClick = { onNavigate(AppScreen.RACE_SESSIONS) })
-            val weatherStatus = raceWeek?.weather_forecast?.status ?: "Partly Cloudy"
+            
+            // Ora mostriamo se sta caricando o se i dati non sono disponibili
+            val weatherStatus = raceWeek?.weather_forecast?.status ?: if (isLoading) "Loading..." else "Not Available"
+            val temp = raceWeek?.weather_forecast?.temp ?: if (isLoading) "--" else "N/A"
             val weatherIcon = when {
-                weatherStatus.contains("Sunny") -> "\u2600\ufe0f"
+                weatherStatus.contains("Sunny") || weatherStatus.contains("Clear") -> "\u2600\ufe0f" // Ora il sereno mostra il sole!
                 weatherStatus.contains("Cloudy") -> "\u26c5"
                 weatherStatus.contains("Rain") -> "\ud83c\udf27\ufe0f"
+                weatherStatus == "Loading..." -> "\u23F3" // Mostra una clessidra se carica
                 else -> "\u2601\ufe0f"
             }
-            FullWidthGlassCard(title = "WEATHER FORECAST", content = "$weatherIcon $weatherStatus \u2022 ${raceWeek?.weather_forecast?.temp ?: "22\u00b0C"}", accentColor = Color(0xFF00FFCC), onClick = { onNavigate(AppScreen.WEATHER_DETAIL) })
+            FullWidthGlassCard(title = "WEATHER FORECAST", content = "$weatherIcon $weatherStatus \u2022 $temp", accentColor = Color(0xFF00FFCC), onClick = { onNavigate(AppScreen.WEATHER_DETAIL) })
             FullWidthGlassCard(title = "TECHNICAL UPDATES", content = "Check latest upgrades...", accentColor = Color(0xFF00FFCC), onClick = { onNavigate(AppScreen.UPDATES_LIST) })
         }
     }
@@ -748,9 +803,9 @@ fun FullWidthGlassCard(title: String, content: String, accentColor: Color, isHig
 fun UpdatesListScreen(updates: List<TeamUpdatesResponse>, isLoading: Boolean, onTeamClick: (TeamUpdatesResponse) -> Unit) {
     Column(modifier = Modifier.fillMaxSize()) {
         Spacer(modifier = Modifier.height(46.dp)) 
-        Text(text = "UPDATES", color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(start = 20.dp, bottom = 24.dp))
+            Text(text = "UPDATES", color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(start = 20.dp).padding(bottom = 24.dp))
         if (isLoading && updates.isEmpty()) {
-            Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator(color = Color(0xFF00FFCC)) }
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Color(0xFF00FFCC)) }
         } else {
             LazyColumn(contentPadding = PaddingValues(bottom = 120.dp)) {
                 items(updates) { update ->
