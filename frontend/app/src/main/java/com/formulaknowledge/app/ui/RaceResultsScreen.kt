@@ -79,12 +79,12 @@ fun RaceResultsScreen(
 
         if (isLoading) {
             Column {
-                ShimmerPodiumHorizontalCard(height = 96.dp)
+                ShimmerPodiumHorizontalCard(height = 86.dp)
+                Spacer(modifier = Modifier.height(8.dp))
+                ShimmerPodiumHorizontalCard(height = 72.dp)
+                Spacer(modifier = Modifier.height(8.dp))
+                ShimmerPodiumHorizontalCard(height = 72.dp)
                 Spacer(modifier = Modifier.height(12.dp))
-                ShimmerPodiumHorizontalCard(height = 80.dp)
-                Spacer(modifier = Modifier.height(12.dp))
-                ShimmerPodiumHorizontalCard(height = 80.dp)
-                Spacer(modifier = Modifier.height(24.dp))
                 repeat(7) { ShimmerResultRow() }
             }
         } else {
@@ -94,7 +94,7 @@ fun RaceResultsScreen(
             LazyColumn(contentPadding = PaddingValues(bottom = 120.dp)) {
                 item {
                     PodiumList(podiumResults, onDriverClick)
-                    Spacer(modifier = Modifier.height(24.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
                 }
 
                 items(otherResults) { result ->
@@ -107,7 +107,7 @@ fun RaceResultsScreen(
 
 @Composable
 fun PodiumList(results: List<RaceResultResponse>, onDriverClick: (String) -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         val p1 = results.find { it.position == 1 }
         val p2 = results.find { it.position == 2 }
         val p3 = results.find { it.position == 3 }
@@ -128,9 +128,9 @@ fun PodiumHorizontalCard(result: RaceResultResponse, color: Color, onDriverClick
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .height(if (result.position == 1) 96.dp else 80.dp)
+            .height(if (result.position == 1) 86.dp else 72.dp)
             .clickable { onDriverClick(result.driver) },
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(16.dp),
         color = Color.White.copy(alpha = 0.02f),
         border = BorderStroke(if (result.position == 1) 2.dp else 1.dp, color.copy(alpha = if (result.position == 1) 0.8f else 0.4f))
     ) {
@@ -153,7 +153,7 @@ fun PodiumHorizontalCard(result: RaceResultResponse, color: Color, onDriverClick
                 fontStyle = FontStyle.Italic,
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
-                    .offset(x = 20.dp, y = 10.dp)
+                    .offset(x = 20.dp, y = 5.dp)
             )
 
             Row(
@@ -186,7 +186,7 @@ fun PodiumHorizontalCard(result: RaceResultResponse, color: Color, onDriverClick
                         fontSize = if (result.position == 1) 11.sp else 9.sp,
                         fontWeight = FontWeight.Black,
                         letterSpacing = 1.sp,
-                        modifier = Modifier.offset(y = 2.dp)
+                        modifier = Modifier.offset(y = 4.dp)
                     )
                     Text(
                         text = lastName,
@@ -197,13 +197,13 @@ fun PodiumHorizontalCard(result: RaceResultResponse, color: Color, onDriverClick
                         maxLines = 1,
                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                     )
-                    Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = teamName,
                         color = color,
                         fontSize = if (result.position == 1) 11.sp else 10.sp,
                         fontWeight = FontWeight.Black,
-                        letterSpacing = 0.5.sp
+                        letterSpacing = 0.5.sp,
+                        modifier = Modifier.offset(y = (-2).dp)
                     )
                 }
                 
@@ -216,20 +216,14 @@ fun PodiumHorizontalCard(result: RaceResultResponse, color: Color, onDriverClick
                         fontStyle = FontStyle.Italic
                     )
                     if (result.position == 1) {
-                        Surface(
-                            color = color.copy(alpha = 0.2f), 
-                            shape = RoundedCornerShape(6.dp), 
-                            modifier = Modifier.padding(top = 6.dp)
-                        ) {
-                            Text(
-                                text = "WINNER", 
-                                color = color, 
-                                fontSize = 11.sp, 
-                                fontWeight = FontWeight.Black, 
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                                letterSpacing = 1.sp
-                            )
-                        }
+                        Text(
+                            text = "WINNER", 
+                            color = color, 
+                            fontSize = 10.sp, 
+                            fontWeight = FontWeight.Black, 
+                            modifier = Modifier.padding(top = 4.dp),
+                            letterSpacing = 1.sp
+                        )
                     } else if (!isDnfOrDns(result.time)) {
                         Text(
                             text = result.time,
@@ -274,7 +268,7 @@ fun ResultRow(result: RaceResultResponse, onDriverClick: (String) -> Unit) {
     val statusColor = if (isDnf) Color(0xFFFF0033) else Color.White.copy(alpha = 0.4f)
     val teamSubtitle = if (isDnf) "${shortTeamName(result.team)} • ${result.time}" else shortTeamName(result.team)
 
-    Surface(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { onDriverClick(result.driver) }, shape = RoundedCornerShape(12.dp), color = Color.White.copy(alpha = 0.03f)) {
+    Surface(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp).clickable { onDriverClick(result.driver) }, shape = RoundedCornerShape(12.dp), color = Color.White.copy(alpha = 0.03f)) {
         Row(modifier = Modifier.fillMaxWidth().height(54.dp).padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(text = statusText, color = statusColor, fontSize = 14.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(45.dp), lineHeight = 16.sp)
             Column(modifier = Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.Center) {

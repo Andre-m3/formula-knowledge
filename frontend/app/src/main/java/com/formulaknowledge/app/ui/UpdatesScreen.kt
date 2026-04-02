@@ -385,30 +385,42 @@ fun CircuitDetailScreen(round: Int, onNavigateToResults: (Int, String) -> Unit, 
                                 
                                 Row(modifier = Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
                                     // Layout Tracciato (Sinistra)
-                                    Box(
-                                        modifier = Modifier.weight(1.3f).fillMaxHeight().padding(16.dp),
-                                        contentAlignment = Alignment.Center
+                                    Column(
+                                        modifier = Modifier.weight(1.3f).fillMaxHeight().padding(vertical = 12.dp, horizontal = 16.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally
                                     ) {
-                                        val resourceName = "track_r${data.round}"
-                                        val resourceId = remember(resourceName) {
-                                            context.resources.getIdentifier(resourceName, "drawable", context.packageName)
+                                        Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                                            val resourceName = "track_r${data.round}"
+                                            val resourceId = remember(resourceName) {
+                                                context.resources.getIdentifier(resourceName, "drawable", context.packageName)
+                                            }
+            
+                                            if (resourceId != 0) {
+                                                Image(
+                                                    painter = painterResource(id = resourceId),
+                                                    contentDescription = "Layout del tracciato di ${data.circuit_name}",
+                                                    modifier = Modifier.fillMaxSize(),
+                                                    colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(Color(0xFF00FFCC).copy(alpha = 0.9f))
+                                                )
+                                            } else {
+                                                Icon(
+                                                    imageVector = Icons.Default.Map,
+                                                    contentDescription = "Layout del tracciato non disponibile",
+                                                    modifier = Modifier.size(60.dp),
+                                                    tint = Color.White.copy(alpha = 0.3f)
+                                                )
+                                            }
                                         }
-        
-                                        if (resourceId != 0) {
-                                            Image(
-                                                painter = painterResource(id = resourceId),
-                                                contentDescription = "Layout del tracciato di ${data.circuit_name}",
-                                                modifier = Modifier.fillMaxSize(),
-                                                colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(Color(0xFF00FFCC).copy(alpha = 0.9f))
-                                            )
-                                        } else {
-                                            Icon(
-                                                imageVector = Icons.Default.Map,
-                                                contentDescription = "Layout del tracciato non disponibile",
-                                                modifier = Modifier.size(60.dp),
-                                                tint = Color.White.copy(alpha = 0.3f)
-                                            )
-                                        }
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Text(
+                                            text = data.circuit_name.uppercase(),
+                                            color = Color.White.copy(alpha = 0.4f),
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Black,
+                                            letterSpacing = 0.5.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
                                     }
                                     
                                     // Dati (Destra)
@@ -416,11 +428,11 @@ fun CircuitDetailScreen(round: Int, onNavigateToResults: (Int, String) -> Unit, 
                                         modifier = Modifier.weight(0.7f).fillMaxHeight().background(Color.White.copy(alpha = 0.03f)).padding(16.dp),
                                         verticalArrangement = Arrangement.Center
                                     ) {
-                                        Text(text = "LENGTH", color = Color(0xFF00FFCC), fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
-                                        Text(text = data.length, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        Text(text = "LENGTH", color = Color.White.copy(alpha = 0.5f), fontSize = 11.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.5.sp)
+                                        Text(text = data.length, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.offset(y = (-2).dp))
                                         Spacer(modifier = Modifier.height(16.dp))
-                                        Text(text = "DISTANCE", color = Color(0xFF00FFCC), fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
-                                        Text(text = "${data.laps} LAPS", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold)
+                                        Text(text = "DISTANCE", color = Color.White.copy(alpha = 0.5f), fontSize = 11.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.5.sp)
+                                        Text(text = "${data.laps} LAPS", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.offset(y = (-2).dp))
                                     }
                                 }
                             }
@@ -484,7 +496,21 @@ fun HistoricalDataCard(data: CircuitDetailResponse) {
         )
         Spacer(modifier = Modifier.height(16.dp))
 
-        HistoricalStatItem("LAP RECORD", data.record, Icons.Default.Timer)
+        // Formattazione dinamica per separare il tempo dal nome del pilota e dall'anno
+        val recordParts = data.record.split(" (")
+        if (recordParts.size == 2) {
+            val time = recordParts[0]
+            val driverAndYear = recordParts[1].removeSuffix(")")
+            val subParts = driverAndYear.split(", ")
+            val formattedDriverYear = if (subParts.size == 2) {
+                "${subParts[0]} (${subParts[1]})"
+            } else {
+                driverAndYear
+            }
+            HistoricalStatItem("LAP RECORD: $time", formattedDriverYear, Icons.Default.Timer)
+        } else {
+            HistoricalStatItem("LAP RECORD", data.record, Icons.Default.Timer)
+        }
         HistoricalStatItem("PREVIOUS WINNER", data.previous_winner, Icons.Default.EmojiEvents)
         HistoricalStatItem("MOST WINS (DRIVER)", data.most_driver_wins, Icons.Default.Person)
         HistoricalStatItem("MOST WINS (TEAM)", data.most_constructor_wins, Icons.Default.PrecisionManufacturing)
@@ -512,9 +538,15 @@ fun HistoricalStatItem(label: String, value: String, icon: androidx.compose.ui.g
             }
             Spacer(modifier = Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(text = label, color = Color(0xFF00FFCC), fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(text = value.uppercase(), color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic)
+                Text(text = label, color = Color.White.copy(alpha = 0.5f), fontSize = 11.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.5.sp)
+                Text(
+                    text = value.uppercase(), 
+                    color = Color.White, 
+                    fontSize = 16.sp, 
+                    fontWeight = FontWeight.Black, 
+                    fontStyle = FontStyle.Italic,
+                    modifier = Modifier.offset(y = (-2).dp)
+                )
             }
         }
     }
@@ -522,12 +554,33 @@ fun HistoricalStatItem(label: String, value: String, icon: androidx.compose.ui.g
 
 @Composable
 fun DriverDetailScreen(driverName: String) {
+    val nameParts = driverName.split(" ")
+    val firstName = nameParts.dropLast(1).joinToString(" ").uppercase()
+    val lastName = nameParts.lastOrNull()?.uppercase() ?: ""
+
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
         Spacer(modifier = Modifier.height(46.dp))
-        Text(text = driverName.uppercase(), color = Color.White, fontSize = 38.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic)
-        Text(text = "DRIVER STATISTICS", color = Color(0xFF00FFCC), fontSize = 14.sp, fontWeight = FontWeight.Bold)
+        Text(
+            text = "$firstName\n$lastName",
+            color = Color.White,
+            fontSize = 54.sp,
+            fontWeight = FontWeight.Black,
+            fontStyle = FontStyle.Italic,
+            letterSpacing = (-3).sp,
+            lineHeight = 44.sp
+        )
+        Text(
+            text = "DRIVER STATS",
+            color = Color(0xFF00FFCC),
+            fontSize = 38.sp,
+            fontWeight = FontWeight.Black,
+            fontStyle = FontStyle.Italic,
+            letterSpacing = (-2).sp,
+            modifier = Modifier.offset(y = (-10).dp)
+        )
         
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Spacer(modifier = Modifier.height(24.dp))
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
             Text(text = "Pagina statistiche in arrivo...", color = Color.White.copy(alpha = 0.3f), fontSize = 16.sp)
         }
     }
@@ -614,25 +667,36 @@ fun StandingsScreen(
                         val secondPlacePoints = drivers.getOrNull(1)?.points ?: 0
                         if (leader != null) {
                             item {
-                                LeaderCard(name = leader.driver_name, subtitle = leader.constructor_name, points = leader.points.toString(), gap = if (leader.points - secondPlacePoints > 0) "+${leader.points - secondPlacePoints} PTS" else "LEADER", icon = "1", onClick = { onDriverClick(leader.driver_name) })
+                                LeaderCard(name = leader.driver_name, subtitle = formatStandingsTeam(leader.constructor_name), points = leader.points.toString(), gap = if (leader.points - secondPlacePoints > 0) "+${leader.points - secondPlacePoints} PTS" else "LEADER", icon = "1", onClick = { onDriverClick(leader.driver_name) })
                                 Spacer(modifier = Modifier.height(12.dp))
                             }
                         }
-                        items(drivers.drop(1)) { driver -> StandingRow(driver.position, driver.driver_name, driver.points.toString(), driver.constructor_name, height = 61.dp, onClick = { onDriverClick(driver.driver_name) }) }
+                        items(drivers.drop(1)) { driver -> StandingRow(driver.position, driver.driver_name, driver.points.toString(), formatStandingsTeam(driver.constructor_name), height = 61.dp, onClick = { onDriverClick(driver.driver_name) }) }
                     } else {
                         val leader = constructors.firstOrNull()
                         val secondPlacePoints = constructors.getOrNull(1)?.points ?: 0
                         if (leader != null) {
                             item {
-                                LeaderCard(name = leader.constructor_name, subtitle = leader.chassis_name ?: "CHASSIS", points = leader.points.toString(), gap = if (leader.points - secondPlacePoints > 0) "+${leader.points - secondPlacePoints} PTS" else "LEADER", icon = "\uD83C\uDFCE\uFE0F")
+                                LeaderCard(name = formatStandingsTeam(leader.constructor_name), subtitle = leader.chassis_name ?: "CHASSIS", points = leader.points.toString(), gap = if (leader.points - secondPlacePoints > 0) "+${leader.points - secondPlacePoints} PTS" else "LEADER", icon = "\uD83C\uDFCE\uFE0F")
                                 Spacer(modifier = Modifier.height(12.dp))
                             }
                         }
-                        items(constructors.drop(1)) { team -> StandingRow(team.position, team.constructor_name, team.points.toString(), subtitle = team.chassis_name, height = 61.dp) }
+                        items(constructors.drop(1)) { team -> StandingRow(team.position, formatStandingsTeam(team.constructor_name), team.points.toString(), subtitle = team.chassis_name, height = 61.dp) }
                     }
                 }
             }
         }
+    }
+}
+
+fun formatStandingsTeam(fullName: String): String {
+    val upper = fullName.uppercase()
+    return when {
+        upper.contains("HAAS") -> "HAAS"
+        upper.contains("ALPINE") -> "ALPINE"
+        upper.contains("RB") || upper.contains("RACING BULLS") -> "RACING BULLS"
+        upper.contains("CADILLAC") -> "CADILLAC"
+        else -> upper
     }
 }
 
@@ -729,6 +793,11 @@ fun FloatingBottomBar(currentScreen: AppScreen, onNavigate: (AppScreen) -> Unit)
 @Composable
 fun HomeScreen(raceWeek: RaceWeekResponse?, isLoading: Boolean, onNavigate: (AppScreen) -> Unit) {
     val context = LocalContext.current
+    val database = remember { FormulaDatabase.getDatabase(context) }
+    val repository = remember { FormulaRepository(database) }
+    val roundNumber = raceWeek?.round_number ?: 0
+    val resultsEntities by repository.getRaceResults(roundNumber).collectAsState(initial = emptyList())
+    val top5Results = resultsEntities.take(5).map { RaceResultResponse(it.position, it.driver, it.team, it.points, it.time) }
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
         Spacer(modifier = Modifier.height(26.dp)) 
@@ -794,6 +863,15 @@ fun HomeScreen(raceWeek: RaceWeekResponse?, isLoading: Boolean, onNavigate: (App
             }
             FullWidthGlassCard(title = "WEATHER FORECAST", content = "$weatherIcon $weatherStatus \u2022 $temp", accentColor = Color(0xFF00FFCC), onClick = { onNavigate(AppScreen.WEATHER_DETAIL) })
             FullWidthGlassCard(title = "TECHNICAL UPDATES", content = "Check latest upgrades...", accentColor = Color(0xFF00FFCC), onClick = { onNavigate(AppScreen.UPDATES_LIST) })
+            
+            Spacer(modifier = Modifier.height(0.dp))
+            
+            Row(modifier = Modifier.fillMaxWidth().height(180.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                LastSessionCard(top5Results, Modifier.weight(0.53f).fillMaxHeight())
+                FocusOnTrackCard(roundNumber, raceWeek?.city ?: "CITY", Modifier.weight(0.47f).fillMaxHeight())
+            }
+            
+            Spacer(modifier = Modifier.height(20.dp))
         }
     }
 }
@@ -807,6 +885,74 @@ fun FullWidthGlassCard(title: String, content: String, accentColor: Color, isHig
         Column(modifier = Modifier.padding(horizontal = 16.dp).fillMaxHeight(), verticalArrangement = Arrangement.Center) {
             Text(text = title, color = titleColor, fontSize = 12.sp, fontWeight = FontWeight.Black, letterSpacing = 1.2.sp)
             Text(text = content, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
+        }
+    }
+}
+
+@Composable
+fun LastSessionCard(results: List<RaceResultResponse>, modifier: Modifier) {
+    Surface(modifier = modifier, shape = RoundedCornerShape(20.dp), color = Color.White.copy(alpha = 0.03f), border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.1f))) {
+        Column(modifier = Modifier.padding(16.dp).fillMaxSize()) {
+            Text("LAST SESSION", color = Color(0xFF00FFCC), fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
+            Text("TOP 5", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold)
+            Spacer(modifier = Modifier.height(14.dp))
+
+            if (results.isEmpty()) {
+                Column(modifier = Modifier.fillMaxSize().offset(y = (-10).dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(Icons.Default.Timer, null, tint = Color.White.copy(alpha = 0.2f), modifier = Modifier.size(32.dp))
+                    Spacer(Modifier.height(8.dp))
+                    Text("Risultati ancora\nnon disponibili", color = Color.White.copy(alpha = 0.4f), fontSize = 11.sp, textAlign = TextAlign.Center, lineHeight = 13.sp, fontWeight = FontWeight.Bold)
+                }
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    results.forEachIndexed { index, res ->
+                        val lastName = res.driver.split(" ").lastOrNull()?.uppercase() ?: ""
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("P${res.position}", color = if (index == 0) Color(0xFF00FFCC) else Color.White.copy(alpha = 0.5f), fontSize = 12.sp, fontWeight = FontWeight.Black, modifier = Modifier.width(22.dp))
+                                Text(lastName, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 65.dp))
+                            }
+                            Text(
+                                text = if (isDnfOrDns(res.time)) "DNF" else res.time, 
+                                color = if (index == 0) Color.White else Color.White.copy(alpha = 0.5f), 
+                                fontSize = 10.sp, 
+                                fontWeight = FontWeight.Black, 
+                                maxLines = 1
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun FocusOnTrackCard(round: Int, city: String, modifier: Modifier) {
+    val context = LocalContext.current
+    Surface(modifier = modifier, shape = RoundedCornerShape(20.dp), color = Color.White.copy(alpha = 0.02f), border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f))) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            Canvas(modifier = Modifier.fillMaxSize().alpha(0.06f)) {
+                val gridSize = 16.dp.toPx()
+                for (x in 0..size.width.toInt() step gridSize.toInt()) { drawLine(Color.White, Offset(x.toFloat(), 0f), Offset(x.toFloat(), size.height), strokeWidth = 1f) }
+                for (y in 0..size.height.toInt() step gridSize.toInt()) { drawLine(Color.White, Offset(0f, y.toFloat()), Offset(size.width, y.toFloat()), strokeWidth = 1f) }
+            }
+            Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+                Text("FOCUS ON", color = Color(0xFF00FFCC), fontSize = 10.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
+                Text(city.uppercase().replace("MONTE CARLO", "MONTECARLO"), color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                
+                Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    val resourceName = "track_r$round"
+                    val resourceId = remember(resourceName) {
+                        context.resources.getIdentifier(resourceName, "drawable", context.packageName)
+                    }
+                    if (resourceId != 0) {
+                        Image(painter = painterResource(id = resourceId), contentDescription = null, modifier = Modifier.fillMaxSize().padding(top = 12.dp, bottom = 4.dp), colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(Color(0xFF00FFCC).copy(alpha = 0.9f)))
+                    } else {
+                        Icon(Icons.Default.Map, null, modifier = Modifier.size(40.dp), tint = Color.White.copy(alpha = 0.3f))
+                    }
+                }
+            }
         }
     }
 }
