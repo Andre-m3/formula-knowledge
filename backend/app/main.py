@@ -105,6 +105,7 @@ class CircuitDetailResponse(BaseModel):
     location: str
     country: str
     length: str
+    altitude: str
     laps: int
     record: str
     is_sprint: bool
@@ -186,6 +187,7 @@ def get_circuit_details(round_number: int, db: Session = Depends(database.get_db
         "circuit_name": race.circuit_name or race.name,
         "location": f"{race.city.upper()} ({race.country})",
         "length": race.circuit_length or "N/A",
+        "altitude": race.altitude or "N/A",
         "laps": race.laps,
         "record": race.lap_record or "N/A",
         "is_sprint": race.is_sprint,

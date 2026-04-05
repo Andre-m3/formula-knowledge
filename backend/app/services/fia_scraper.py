@@ -3,6 +3,7 @@ import requests
 from bs4 import BeautifulSoup
 import io
 import json
+import os
 import google.generativeai as genai
 from .calendar_service import CalendarService
 
@@ -11,7 +12,11 @@ class FiaScraperService:
         self.docs_url = "https://www.fia.com/documents/championships/fia-formula-one-world-championship-14/season/season-2026-2072"
         self.base_url = "https://www.fia.com"
         # Configurazione Gemini
-        genai.configure(api_key="AIzaSyCHwvpD6Z5d4QQjUoNutmDx0jh6kz1EJ9k")
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            # Evitiamo crash critici ma loggiamo l'errore
+            print("WARNING: GEMINI_API_KEY non trovata nelle variabili d'ambiente!")
+        genai.configure(api_key=api_key)
         self.model = genai.GenerativeModel('gemini-1.5-flash')
 
     def find_latest_submissions_pdf(self, gp_name: str) -> str:

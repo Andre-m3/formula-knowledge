@@ -62,7 +62,7 @@ class FormulaRepository(private val database: FormulaDatabase) {
             
             val entity = CircuitDetailEntity(
                 apiData.round, apiData.gp_name, apiData.circuit_name, apiData.location, apiData.country,
-                apiData.length, apiData.laps, apiData.record, apiData.is_sprint,
+                apiData.length, apiData.altitude, apiData.laps, apiData.record, apiData.is_sprint,
                 apiData.dates.joinToString(","), apiData.status, apiData.previous_winner,
                 apiData.most_driver_wins, apiData.most_constructor_wins, apiData.most_driver_podiums,
                 apiData.most_poles, apiData.num_races_held,

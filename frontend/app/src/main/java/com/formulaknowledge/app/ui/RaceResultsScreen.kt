@@ -7,6 +7,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -18,10 +19,15 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.buildAnnotatedString
@@ -29,6 +35,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.sp
 import com.formulaknowledge.app.data.RaceResultResponse
 import com.formulaknowledge.app.data.FormulaDatabase
@@ -54,26 +61,76 @@ fun RaceResultsScreen(
     }
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
-        Spacer(modifier = Modifier.height(46.dp))
+        Spacer(modifier = Modifier.height(26.dp))
 
-        Text(
-            text = "RACE\nRESULTS",
-            color = Color.White,
-            fontSize = 54.sp,
-            fontWeight = FontWeight.Black,
-            fontStyle = FontStyle.Italic,
-            letterSpacing = (-3).sp,
-            lineHeight = 44.sp
-        )
-        Text(
-            text = "${gpName.uppercase().replace(" GRAND PRIX", "")} GP",
-            color = Color(0xFF00FFCC),
-            fontSize = 38.sp,
-            fontWeight = FontWeight.Black,
-            fontStyle = FontStyle.Italic,
-            letterSpacing = (-2).sp,
-            modifier = Modifier.offset(y = (-10).dp)
-        )
+        Box(modifier = Modifier.fillMaxWidth().height(160.dp), contentAlignment = Alignment.BottomStart) {
+            val resourceId = remember {
+                context.resources.getIdentifier("flag_chequered", "drawable", context.packageName)
+            }
+
+            if (resourceId != 0) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .fillMaxWidth(0.8f)
+                        .align(Alignment.CenterEnd)
+                        .graphicsLayer {
+                            alpha = 0.99f
+                            translationX = 20.dp.toPx()
+                            translationY = -26.dp.toPx()
+                            scaleX = 1.2f
+                            scaleY = 1.2f
+                        }
+                        .drawWithContent {
+                            drawContent()
+                            drawRect(
+                                brush = Brush.horizontalGradient(
+                                    colors = listOf(Color.Transparent, Color.Black),
+                                    startX = 0f,
+                                    endX = size.width * 0.6f
+                                ),
+                                blendMode = BlendMode.DstIn
+                            )
+                            drawRect(
+                                brush = Brush.verticalGradient(
+                                    colors = listOf(Color.Black, Color.Transparent),
+                                    startY = size.height * 0.35f,
+                                    endY = size.height
+                                ),
+                                blendMode = BlendMode.DstIn
+                            )
+                        }
+                ) {
+                    Image(
+                        painter = painterResource(id = resourceId),
+                        contentDescription = "Chequered Flag",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize().alpha(0.35f)
+                    )
+                }
+            }
+
+            Column {
+                Text(
+                    text = "RACE\nRESULTS",
+                    color = Color.White,
+                    fontSize = 54.sp,
+                    fontWeight = FontWeight.Black,
+                    fontStyle = FontStyle.Italic,
+                    letterSpacing = (-3).sp,
+                    lineHeight = 44.sp
+                )
+                Text(
+                    text = "${gpName.uppercase().replace(" GRAND PRIX", "")} GP",
+                    color = Color(0xFF00FFCC),
+                    fontSize = 38.sp,
+                    fontWeight = FontWeight.Black,
+                    fontStyle = FontStyle.Italic,
+                    letterSpacing = (-2).sp,
+                    modifier = Modifier.offset(y = (-8).dp)
+                )
+            }
+        }
 
         Spacer(modifier = Modifier.height(24.dp))
 
@@ -294,7 +351,7 @@ fun shortTeamName(fullName: String): String {
         lower.contains("mclaren") -> "McLaren"
         lower.contains("aston martin") -> "Aston Martin"
         lower.contains("alpine") -> "Alpine"
-        lower.contains("williams") -> "Williams" // Assuming Williams is a separate team
+        lower.contains("williams") -> "Williams"
         lower.contains("racing bulls") || lower.contains("rb") || lower.contains("alphatauri") -> "Racing Bulls"
         lower.contains("audi") || lower.contains("sauber") || lower.contains("alfa romeo") -> "Audi"
         lower.contains("haas") -> "Haas"

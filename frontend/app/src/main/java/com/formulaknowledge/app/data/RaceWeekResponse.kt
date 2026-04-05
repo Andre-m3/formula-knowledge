@@ -49,6 +49,7 @@ data class CircuitDetailResponse(
     val location: String,
     val country: String,
     val length: String,
+    val altitude: String,
     val laps: Int,
     val record: String,
     val is_sprint: Boolean,

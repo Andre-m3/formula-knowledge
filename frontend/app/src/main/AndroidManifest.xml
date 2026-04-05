@@ -10,6 +10,7 @@
         android:roundIcon="@mipmap/ic_launcher"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.NoTitleBar"
+        <!-- ATTENZIONE SECURITY: Rimuovere usesCleartextTraffic="true" per la produzione. Usare HTTPS. -->
         android:usesCleartextTraffic="true">
 
         <activity
