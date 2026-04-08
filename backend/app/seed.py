@@ -60,7 +60,7 @@ HISTORICAL_DATA = {
     "Albert Park Grand Prix Circuit": {
         "laps": 58,
         "circuit_length": "5.278 km",
-        "altitude": "2 m",
+        "corners": 14,
         "lap_record": "1:20.235 (Sergio Pérez, 2025)",
         "previous_winner": "Carlos Sainz (2024)",
         "most_driver_wins": "Michael Schumacher (4)",
@@ -73,7 +73,7 @@ HISTORICAL_DATA = {
     "Shanghai International Circuit": {
         "laps": 56,
         "circuit_length": "5.451 km",
-        "altitude": "N/A",
+        "corners": 16,
         "lap_record": "1:30.641 (Oscar Piastri, 2025)",
         "previous_winner": "Kimi Antonelli (2026)",
         "most_driver_wins": "Lewis Hamilton (6)",
@@ -86,7 +86,7 @@ HISTORICAL_DATA = {
     "Suzuka Circuit": {
         "laps": 53,
         "circuit_length": "5.807 km",
-        "altitude": "40 m",
+        "corners": 18,
         "lap_record": "1:26.983 (Max Verstappen, 2025)",
         "previous_winner": "Kimi Antonelli (2026)",
         "most_driver_wins": "Michael Schumacher (6)",
@@ -99,7 +99,7 @@ HISTORICAL_DATA = {
     "Miami International Autodrome": {
         "laps": 57,
         "circuit_length": "5.412 km",
-        "altitude": "3 m",
+        "corners": 19,
         "lap_record": "1:26.983 (Max Verstappen, 2025)",
         "previous_winner": "Oscar Piastri (2025)",
         "most_driver_wins": "Max Verstappen (2)",
@@ -112,7 +112,7 @@ HISTORICAL_DATA = {
     "Circuit Gilles Villeneuve": {
         "laps": 70,
         "circuit_length": "5.361 km",
-        "altitude": "0 m",
+        "corners": 14,
         "lap_record": "1:10.240 (Sebastian Vettel, 2019)",
         "previous_winner": "George Russell (2025)",
         "most_driver_wins": "Schumacher/Hamilton (7)",
@@ -125,7 +125,7 @@ HISTORICAL_DATA = {
     "Circuit de Monaco": {
         "laps": 78,
         "circuit_length": "3.337 km",
-        "altitude": "83 m",
+        "corners": 19,
         "lap_record": "1:09.954 (Lando Norris, 2025)",
         "previous_winner": "Lando Norris (2025)",
         "most_driver_wins": "Ayrton Senna (6)",
@@ -138,7 +138,7 @@ HISTORICAL_DATA = {
     "Circuit de Barcelona-Catalunya": {
         "laps": 66,
         "circuit_length": "4.657 km",
-        "altitude": "30 m",
+        "corners": 14,
         "lap_record": "1:11.383 (Lando Norris, 2024)",
         "previous_winner": "Oscar Piastri (2025)",
         "most_driver_wins": "Schumacher/Hamilton (6)",
@@ -151,7 +151,7 @@ HISTORICAL_DATA = {
     "Red Bull Ring": {
         "laps": 71,
         "circuit_length": "4.326 km",
-        "altitude": "677 m",
+        "corners": 10,
         "lap_record": "1:02.939 (Valtteri Bottas, 2020)",
         "previous_winner": "Lando Norris (2025)",
         "most_driver_wins": "Max Verstappen (5)",
@@ -164,7 +164,7 @@ HISTORICAL_DATA = {
     "Silverstone Circuit": {
         "laps": 52,
         "circuit_length": "5.891 km",
-        "altitude": "11 m",
+        "corners": 18,
         "lap_record": "1:24.303 (Lewis Hamilton, 2020)",
         "previous_winner": "Lando Norris (2025)",
         "most_driver_wins": "Lewis Hamilton (9)",
@@ -218,7 +218,7 @@ def seed_database():
                 circuit_name=circuit_name,
                 laps=hist_data.get("laps", 57),
                 circuit_length=hist_data.get("circuit_length", "N/A"),
-                altitude=hist_data.get("altitude", "N/A"),
+                corners=hist_data.get("corners", 0),
                 lap_record=hist_data.get("lap_record", "N/A"),
                 
                 # dati storici #

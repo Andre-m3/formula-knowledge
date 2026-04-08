@@ -1,5 +1,7 @@
 package com.formulaknowledge.app.ui
 
+import android.content.Intent
+import android.provider.CalendarContract
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -8,11 +10,16 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -30,28 +37,61 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.draw.alpha
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import com.formulaknowledge.app.data.SessionTimes
 import com.formulaknowledge.app.utils.TimeUtils
 
+enum class SessionStatus { FUTURE, ONGOING, CONCLUDED }
+
+data class SessionInfo(val name: String, val day: String, val time: String, val isMajor: Boolean = false, val status: SessionStatus = SessionStatus.FUTURE)
+
+fun getSessionStatus(sessionDay: String, sessionTimeLocal: String, gpStatus: String): SessionStatus {
+    if (gpStatus == "past") return SessionStatus.CONCLUDED
+    if (gpStatus == "future") return SessionStatus.FUTURE
+    
+    val currentDay = java.time.LocalDate.now().dayOfWeek.name
+    val days = listOf("MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY")
+    val currentDayIdx = days.indexOf(currentDay)
+    val sessionDayIdx = days.indexOf(sessionDay.uppercase())
+    
+    if (sessionDayIdx < currentDayIdx) return SessionStatus.CONCLUDED
+    if (sessionDayIdx > currentDayIdx) return SessionStatus.FUTURE
+    
+    try {
+        val formatter = java.time.format.DateTimeFormatter.ofPattern("HH:mm")
+        val sTime = java.time.LocalTime.parse(sessionTimeLocal, formatter)
+        val nowTime = java.time.LocalTime.now()
+        
+        if (nowTime.isBefore(sTime)) return SessionStatus.FUTURE
+        if (nowTime.isAfter(sTime) && nowTime.isBefore(sTime.plusHours(2))) return SessionStatus.ONGOING
+        return SessionStatus.CONCLUDED
+    } catch (e: Exception) {
+        return SessionStatus.FUTURE
+    }
+}
+
 @Composable
-fun RaceSessionsScreen(isSprint: Boolean, gpName: String, country: String, sessions: SessionTimes?) {
+fun RaceSessionsScreen(isSprint: Boolean, gpName: String, country: String, sessions: SessionTimes?, gpStatus: String) {
     val context = LocalContext.current
+    var showOngoingDialog by remember { mutableStateOf(false) }
+    var showConcludedDialog by remember { mutableStateOf(false) }
+
     val sessionsList = remember(isSprint, sessions) {
         val list = mutableListOf<SessionInfo>()
         if (sessions == null) return@remember emptyList<SessionInfo>()
 
         if (isSprint) {
-            sessions.fp1?.let { list.add(SessionInfo("FREE PRACTICE 1", "FRIDAY", TimeUtils.formatUtcToLocalTime(it))) }
-            sessions.sprint_shootout?.let { list.add(SessionInfo("SPRINT QUALI", "FRIDAY", TimeUtils.formatUtcToLocalTime(it))) }
-            sessions.sprint_race?.let { list.add(SessionInfo("SPRINT RACE", "SATURDAY", TimeUtils.formatUtcToLocalTime(it), isMajor = true)) }
-            sessions.quali?.let { list.add(SessionInfo("QUALIFYING", "SATURDAY", TimeUtils.formatUtcToLocalTime(it), isMajor = true)) }
-            sessions.race?.let { list.add(SessionInfo("GRAND PRIX", "SUNDAY", TimeUtils.formatUtcToLocalTime(it), isMajor = true)) }
+            sessions.fp1?.let { val t = TimeUtils.formatUtcToLocalTime(it); list.add(SessionInfo("FREE PRACTICE 1", "FRIDAY", t, false, getSessionStatus("FRIDAY", t, gpStatus))) }
+            sessions.sprint_shootout?.let { val t = TimeUtils.formatUtcToLocalTime(it); list.add(SessionInfo("SPRINT QUALI", "FRIDAY", t, false, getSessionStatus("FRIDAY", t, gpStatus))) }
+            sessions.sprint_race?.let { val t = TimeUtils.formatUtcToLocalTime(it); list.add(SessionInfo("SPRINT RACE", "SATURDAY", t, true, getSessionStatus("SATURDAY", t, gpStatus))) }
+            sessions.quali?.let { val t = TimeUtils.formatUtcToLocalTime(it); list.add(SessionInfo("QUALIFYING", "SATURDAY", t, true, getSessionStatus("SATURDAY", t, gpStatus))) }
+            sessions.race?.let { val t = TimeUtils.formatUtcToLocalTime(it); list.add(SessionInfo("GRAND PRIX", "SUNDAY", t, true, getSessionStatus("SUNDAY", t, gpStatus))) }
         } else {
-            sessions.fp1?.let { list.add(SessionInfo("FREE PRACTICE 1", "FRIDAY", TimeUtils.formatUtcToLocalTime(it))) }
-            sessions.fp2?.let { list.add(SessionInfo("FREE PRACTICE 2", "FRIDAY", TimeUtils.formatUtcToLocalTime(it))) }
-            sessions.fp3?.let { list.add(SessionInfo("FREE PRACTICE 3", "SATURDAY", TimeUtils.formatUtcToLocalTime(it))) }
-            sessions.quali?.let { list.add(SessionInfo("QUALIFYING", "SATURDAY", TimeUtils.formatUtcToLocalTime(it), isMajor = true)) }
-            sessions.race?.let { list.add(SessionInfo("GRAND PRIX", "SUNDAY", TimeUtils.formatUtcToLocalTime(it), isMajor = true)) }
+            sessions.fp1?.let { val t = TimeUtils.formatUtcToLocalTime(it); list.add(SessionInfo("FREE PRACTICE 1", "FRIDAY", t, false, getSessionStatus("FRIDAY", t, gpStatus))) }
+            sessions.fp2?.let { val t = TimeUtils.formatUtcToLocalTime(it); list.add(SessionInfo("FREE PRACTICE 2", "FRIDAY", t, false, getSessionStatus("FRIDAY", t, gpStatus))) }
+            sessions.fp3?.let { val t = TimeUtils.formatUtcToLocalTime(it); list.add(SessionInfo("FREE PRACTICE 3", "SATURDAY", t, false, getSessionStatus("SATURDAY", t, gpStatus))) }
+            sessions.quali?.let { val t = TimeUtils.formatUtcToLocalTime(it); list.add(SessionInfo("QUALIFYING", "SATURDAY", t, true, getSessionStatus("SATURDAY", t, gpStatus))) }
+            sessions.race?.let { val t = TimeUtils.formatUtcToLocalTime(it); list.add(SessionInfo("GRAND PRIX", "SUNDAY", t, true, getSessionStatus("SUNDAY", t, gpStatus))) }
         }
         list
     }
@@ -76,8 +116,8 @@ fun RaceSessionsScreen(isSprint: Boolean, gpName: String, country: String, sessi
                             alpha = 0.99f
                             translationX = 20.dp.toPx()
                             translationY = -26.dp.toPx()
-                            scaleX = 1.2f
-                            scaleY = 1.2f
+                            scaleX = 1.26f
+                            scaleY = 1.26f
                         }
                         .drawWithContent {
                             drawContent()
@@ -137,28 +177,71 @@ fun RaceSessionsScreen(isSprint: Boolean, gpName: String, country: String, sessi
                 Text("Session times not available yet.", color = Color.White.copy(alpha = 0.5f))
             }
         } else {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(bottom = 120.dp)) {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 120.dp)) {
                 items(sessionsList) { session ->
-                    SessionCard(session)
+                    SessionCard(session) {
+                        when(session.status) {
+                            SessionStatus.FUTURE -> {
+                                val intent = Intent(Intent.ACTION_INSERT).apply {
+                                    data = CalendarContract.Events.CONTENT_URI
+                                    putExtra(CalendarContract.Events.TITLE, "$gpName - ${session.name}")
+                                    // putExtra(CalendarContract.Events.EVENT_LOCATION, country)
+                                }
+                                context.startActivity(intent)
+                            }
+                            SessionStatus.ONGOING -> { showOngoingDialog = true }
+                            SessionStatus.CONCLUDED -> { showConcludedDialog = true }
+                        }
+                    }
                 }
             }
+        }
+        
+        if (showOngoingDialog) {
+            AlertDialog(
+                onDismissRequest = { showOngoingDialog = false },
+                containerColor = Color(0xFF1E0A0A).copy(alpha = 0.95f),
+                title = { Text("SESSIONE IN CORSO", color = Color(0xFFFF8000), fontWeight = FontWeight.Black) },
+                text = { Text("Attendi la conclusione della sessione per visualizzare la classifica e i risultati completi.", color = Color.White) },
+                confirmButton = { TextButton(onClick = { showOngoingDialog = false }) { Text("OK", color = Color(0xFFFF8000)) } }
+            )
+        }
+
+        if (showConcludedDialog) {
+            AlertDialog(
+                onDismissRequest = { showConcludedDialog = false },
+                containerColor = Color(0xFF1E0A0A).copy(alpha = 0.95f),
+                title = { Text("RISULTATI SESSIONE", color = Color(0xFF00FFCC), fontWeight = FontWeight.Black) },
+                text = { Text("I risultati in tempo reale per questa specifica sessione saranno disponibili con le prossime integrazioni API.", color = Color.White) },
+                confirmButton = { TextButton(onClick = { showConcludedDialog = false }) { Text("OK", color = Color(0xFF00FFCC)) } }
+            )
         }
     }
 }
 
-data class SessionInfo(val name: String, val day: String, val time: String, val isMajor: Boolean = false)
-
 @Composable
-fun SessionCard(session: SessionInfo) {
+fun SessionCard(session: SessionInfo, onClick: () -> Unit) {
     val borderColor = if (session.isMajor) Color(0xFF00FFCC).copy(alpha = 0.8f) else Color.White.copy(alpha = 0.05f)
     val backgroundColor = if (session.isMajor) Color(0xFF00FFCC).copy(alpha = 0.05f) else Color.White.copy(alpha = 0.01f)
     
+    val statusText = when (session.status) {
+        SessionStatus.FUTURE -> "Aggiungi al calendario"
+        SessionStatus.ONGOING -> "Attendi la conclusione"
+        SessionStatus.CONCLUDED -> "Vedi risultati"
+    }
+    val statusColor = when (session.status) {
+        SessionStatus.FUTURE -> Color.White.copy(alpha = 0.4f)
+        SessionStatus.ONGOING -> Color(0xFFFF8000)
+        SessionStatus.CONCLUDED -> Color(0xFF00FFCC)
+    }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .height(74.dp)
             .background(backgroundColor, RoundedCornerShape(18.dp))
             .border(0.5.dp, borderColor, RoundedCornerShape(18.dp))
+            .clickable { onClick() }
             .padding(horizontal = 20.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -177,6 +260,13 @@ fun SessionCard(session: SessionInfo) {
                 fontWeight = FontWeight.ExtraBold,
                 fontStyle = if (session.isMajor) FontStyle.Italic else FontStyle.Normal,
                 lineHeight = 22.sp
+            )
+            Text(
+                text = statusText.uppercase(),
+                color = statusColor,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Medium,
+                lineHeight = 14.sp
             )
         }
         

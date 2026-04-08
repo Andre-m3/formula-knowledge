@@ -78,8 +78,8 @@ fun RaceResultsScreen(
                             alpha = 0.99f
                             translationX = 20.dp.toPx()
                             translationY = -26.dp.toPx()
-                            scaleX = 1.2f
-                            scaleY = 1.2f
+                            scaleX = 1.26f
+                            scaleY = 1.26f
                         }
                         .drawWithContent {
                             drawContent()
@@ -182,10 +182,17 @@ fun PodiumHorizontalCard(result: RaceResultResponse, color: Color, onDriverClick
     val firstName = driverNameParts.dropLast(1).joinToString(" ").uppercase()
     val teamName = shortTeamName(result.team).uppercase()
     
+    val isDnf = isDnfOrDns(result.time)
+    val isDns = isDnf && (result.time.lowercase().contains("dns") || result.time.lowercase().contains("withdrawn"))
+    val isDsq = isDnf && (result.time.lowercase().contains("dsq") || result.time.lowercase().contains("disqualified"))
+    val pointsOrStatus = if (isDnf) {
+        if (isDsq) "DSQ" else if (isDns) "DNS" else "DNF"
+    } else "${result.points} PTS"
+    
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .height(if (result.position == 1) 86.dp else 72.dp)
+            .height(if (result.position == 1) 78.dp else 68.dp)
             .clickable { onDriverClick(result.driver) },
         shape = RoundedCornerShape(16.dp),
         color = Color.White.copy(alpha = 0.02f),
@@ -236,39 +243,39 @@ fun PodiumHorizontalCard(result: RaceResultResponse, color: Color, onDriverClick
                 
                 Spacer(modifier = Modifier.width(16.dp))
                 
-                Column(modifier = Modifier.weight(1f)) {
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
                     Text(
                         text = firstName,
                         color = Color.White.copy(alpha = 0.6f),
-                        fontSize = if (result.position == 1) 11.sp else 9.sp,
+                        fontSize = if (result.position == 1) 14.sp else 12.sp,
                         fontWeight = FontWeight.Black,
                         letterSpacing = 1.sp,
-                        modifier = Modifier.offset(y = 4.dp)
+                        lineHeight = 16.sp
                     )
                     Text(
                         text = lastName,
                         color = Color.White,
-                        fontSize = if (result.position == 1) 24.sp else 20.sp,
+                        fontSize = if (result.position == 1) 22.sp else 19.sp,
                         fontWeight = FontWeight.Black,
                         fontStyle = FontStyle.Italic,
                         maxLines = 1,
-                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        lineHeight = 24.sp
                     )
                     Text(
                         text = teamName,
                         color = color,
                         fontSize = if (result.position == 1) 11.sp else 10.sp,
-                        fontWeight = FontWeight.Black,
-                        letterSpacing = 0.5.sp,
-                        modifier = Modifier.offset(y = (-2).dp)
+                        fontWeight = FontWeight.Medium,
+                        lineHeight = 13.sp
                     )
                 }
                 
                 Column(horizontalAlignment = Alignment.End) {
                     Text(
-                        text = "${result.points} PTS",
-                        color = Color.White,
-                        fontSize = if (result.position == 1) 24.sp else 18.sp,
+                        text = pointsOrStatus,
+                        color = if (isDnf) Color(0xFFFF0033) else Color.White,
+                        fontSize = if (isDnf) (if (result.position == 1) 26.sp else 20.sp) else (if (result.position == 1) 24.sp else 18.sp),
                         fontWeight = FontWeight.Black,
                         fontStyle = FontStyle.Italic
                     )
@@ -278,16 +285,16 @@ fun PodiumHorizontalCard(result: RaceResultResponse, color: Color, onDriverClick
                             color = color, 
                             fontSize = 10.sp, 
                             fontWeight = FontWeight.Black, 
-                            modifier = Modifier.padding(top = 4.dp),
+                            modifier = Modifier.offset(y = (-4).dp),
                             letterSpacing = 1.sp
                         )
-                    } else if (!isDnfOrDns(result.time)) {
+                    } else if (!isDnf) {
                         Text(
                             text = result.time,
                             color = Color.White.copy(alpha = 0.5f),
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Black,
-                            modifier = Modifier.padding(top = 4.dp)
+                            modifier = Modifier.offset(y = (-4).dp)
                         )
                     }
                 }
@@ -321,19 +328,25 @@ fun ShimmerResultRow() {
 @Composable
 fun ResultRow(result: RaceResultResponse, onDriverClick: (String) -> Unit) {
     val isDnf = isDnfOrDns(result.time)
-    val statusText = if (isDnf) if (result.time.lowercase().contains("dns") || result.time.lowercase().contains("withdrawn")) "DNS" else "DNF" else result.position.toString()
-    val statusColor = if (isDnf) Color(0xFFFF0033) else Color.White.copy(alpha = 0.4f)
-    val teamSubtitle = if (isDnf) "${shortTeamName(result.team)} • ${result.time}" else shortTeamName(result.team)
+    val isDns = isDnf && (result.time.lowercase().contains("dns") || result.time.lowercase().contains("withdrawn"))
+    val isDsq = isDnf && (result.time.lowercase().contains("dsq") || result.time.lowercase().contains("disqualified"))
+    val positionText = result.position.toString()
+    val statusColor = Color.White.copy(alpha = 0.4f)
+    val teamSubtitle = shortTeamName(result.team)
+    val pointsOrStatusText = if (isDnf) {
+        if (isDsq) "DSQ" else if (isDns) "DNS" else "DNF"
+    } else "${result.points} PTS"
+    val pointsColor = if (isDnf) Color(0xFFFF0033) else Color(0xFF00FFCC)
 
     Surface(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp).clickable { onDriverClick(result.driver) }, shape = RoundedCornerShape(12.dp), color = Color.White.copy(alpha = 0.03f)) {
         Row(modifier = Modifier.fillMaxWidth().height(54.dp).padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(text = statusText, color = statusColor, fontSize = 14.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(45.dp), lineHeight = 16.sp)
+            Text(text = positionText, color = statusColor, fontSize = 14.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(32.dp), lineHeight = 16.sp)
             Column(modifier = Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.Center) {
                 Text(text = result.driver.uppercase(), color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 17.sp)
                 Text(text = teamSubtitle.uppercase(), color = Color.White.copy(alpha = 0.4f), fontSize = 10.sp, fontWeight = FontWeight.Medium, lineHeight = 12.sp, maxLines = 1)
             }
             Column(horizontalAlignment = Alignment.End, modifier = Modifier.width(85.dp), verticalArrangement = Arrangement.Center) {
-                Text(text = "${result.points} PTS", color = Color(0xFF00FFCC), fontSize = 14.sp, fontWeight = FontWeight.Black, lineHeight = 16.sp)
+                Text(text = pointsOrStatusText, color = pointsColor, fontSize = if (isDnf) 16.sp else 14.sp, fontWeight = FontWeight.Black, lineHeight = 16.sp)
                 if (!isDnf) {
                     Text(text = if (result.position == 1) "WINNER" else result.time, color = Color.White.copy(alpha = 0.4f), fontSize = 10.sp, fontWeight = FontWeight.Bold, lineHeight = 12.sp, maxLines = 1)
                 }

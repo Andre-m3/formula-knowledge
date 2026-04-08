@@ -86,6 +86,7 @@ fun UpdatesScreen() {
     var selectedGpForSessions by remember { mutableStateOf("") }
     var selectedCountryForSessions by remember { mutableStateOf("") }
     var selectedSessions by remember { mutableStateOf<SessionTimes?>(null) }
+    var selectedGpStatusForSessions by remember { mutableStateOf("future") }
     var previousScreenForSessions by remember { mutableStateOf(AppScreen.HOME) }
 
     var showNotReadyDialog by remember { mutableStateOf(false) }
@@ -175,6 +176,7 @@ fun UpdatesScreen() {
                             selectedGpForSessions = raceWeek?.gp_name ?: ""
                             selectedCountryForSessions = raceWeek?.country ?: ""
                             selectedSessions = raceWeek?.sessions
+                            selectedGpStatusForSessions = "current"
                             previousScreenForSessions = AppScreen.HOME
                             currentScreen = it
                         } else if (it == AppScreen.UPDATES_LIST && updatesWrapper?.status == "not_ready") {
@@ -210,7 +212,7 @@ fun UpdatesScreen() {
                         }
                     )
                     AppScreen.DRIVER_DETAIL -> DriverDetailScreen(selectedDriverName)
-                    AppScreen.RACE_SESSIONS -> RaceSessionsScreen(selectedSprintForSessions, selectedGpForSessions, selectedCountryForSessions, selectedSessions)
+                    AppScreen.RACE_SESSIONS -> RaceSessionsScreen(selectedSprintForSessions, selectedGpForSessions, selectedCountryForSessions, selectedSessions, selectedGpStatusForSessions)
                     AppScreen.CIRCUIT_DETAIL -> CircuitDetailScreen(
                         round = selectedCircuitRound,
                         onNavigateToResults = { round, name ->
@@ -218,11 +220,12 @@ fun UpdatesScreen() {
                             selectedGpName = name
                             currentScreen = AppScreen.RESULTS
                         },
-                        onNavigateToSessions = { isSprint, name, country, sessions ->
+                        onNavigateToSessions = { isSprint, name, country, sessions, gpStatus ->
                             selectedSprintForSessions = isSprint
                             selectedGpForSessions = name
                             selectedCountryForSessions = country
                             selectedSessions = sessions
+                            selectedGpStatusForSessions = gpStatus
                         previousScreenForSessions = AppScreen.CIRCUIT_DETAIL
                             currentScreen = AppScreen.RACE_SESSIONS
                         })
@@ -290,7 +293,7 @@ fun UpdatesScreen() {
 }
 
 @Composable
-fun CircuitDetailScreen(round: Int, onNavigateToResults: (Int, String) -> Unit, onNavigateToSessions: (Boolean, String, String, SessionTimes) -> Unit) {
+fun CircuitDetailScreen(round: Int, onNavigateToResults: (Int, String) -> Unit, onNavigateToSessions: (Boolean, String, String, SessionTimes, String) -> Unit) {
     val context = LocalContext.current
     val database = remember { FormulaDatabase.getDatabase(context) }
     val repository = remember { FormulaRepository(database) }
@@ -300,7 +303,7 @@ fun CircuitDetailScreen(round: Int, onNavigateToResults: (Int, String) -> Unit, 
         val sessions = SessionTimes(it.fp1_time, it.fp2_time, it.fp3_time, it.sprint_shootout_time, it.sprint_race_time, it.quali_time, it.race_time)
         CircuitDetailResponse(
             it.round, it.gp_name, it.circuit_name, it.location, it.country,
-            it.length, it.altitude, it.laps, it.record, it.is_sprint, it.dates_joined.split(","),
+            it.length, it.corners, it.laps, it.record, it.is_sprint, it.dates_joined.split(","),
             it.status, it.previous_winner, it.most_driver_wins,
             it.most_constructor_wins, it.most_driver_podiums, it.most_poles,
             it.num_races_held, sessions
@@ -323,6 +326,53 @@ fun CircuitDetailScreen(round: Int, onNavigateToResults: (Int, String) -> Unit, 
         } else {
             circuitData?.let { data ->
                 Box(modifier = Modifier.fillMaxWidth().height(160.dp), contentAlignment = Alignment.BottomStart) {
+                    val countryFormat = data.country.lowercase().replace(" ", "_")
+                    val resourceName = "flag_$countryFormat"
+                    val resourceId = remember(resourceName) {
+                        context.resources.getIdentifier(resourceName, "drawable", context.packageName)
+                    }
+                    if (resourceId != 0) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .fillMaxWidth(0.8f)
+                                .align(Alignment.CenterEnd)
+                                .graphicsLayer { 
+                                    alpha = 0.99f 
+                                    translationX = 20.dp.toPx() 
+                                    translationY = -26.dp.toPx() 
+                                    scaleX = 1.26f 
+                                    scaleY = 1.26f
+                                } 
+                                .drawWithContent {
+                                    drawContent()
+                                    drawRect(
+                                        brush = Brush.horizontalGradient(
+                                            colors = listOf(Color.Transparent, Color.Black),
+                                            startX = 0f,
+                                            endX = size.width * 0.6f
+                                        ),
+                                        blendMode = BlendMode.DstIn
+                                    )
+                                    drawRect(
+                                        brush = Brush.verticalGradient(
+                                            colors = listOf(Color.Black, Color.Transparent),
+                                            startY = size.height * 0.35f,
+                                            endY = size.height
+                                        ),
+                                        blendMode = BlendMode.DstIn
+                                    )
+                                }
+                        ) {
+                            Image(
+                                painter = painterResource(id = resourceId),
+                                contentDescription = "Country Flag",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize().alpha(0.35f)
+                            )
+                        }
+                    }
+
                     Column {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Surface(color = Color(0xFF00FFCC), shape = RoundedCornerShape(4.dp)) {
@@ -424,8 +474,8 @@ fun CircuitDetailScreen(round: Int, onNavigateToResults: (Int, String) -> Unit, 
                                             Text(text = "LENGTH", color = Color.White.copy(alpha = 0.5f), fontSize = 11.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.5.sp)
                                             Text(text = data.length, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.offset(y = (-2).dp))
                                         Spacer(modifier = Modifier.height(4.dp))
-                                        Text(text = "ALTITUDE", color = Color.White.copy(alpha = 0.5f), fontSize = 11.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.5.sp)
-                                        Text(text = data.altitude, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.offset(y = (-2).dp))
+                                        Text(text = "CORNERS", color = Color.White.copy(alpha = 0.5f), fontSize = 11.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.5.sp)
+                                        Text(text = "${data.corners}", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.offset(y = (-2).dp))
                                         }
                                 }
                             }
@@ -437,7 +487,7 @@ fun CircuitDetailScreen(round: Int, onNavigateToResults: (Int, String) -> Unit, 
                         // Pulsante delle sessioni o dei risultati
                         if (data.status == "future" || data.status == "current") {
                             Button(
-                                onClick = { onNavigateToSessions(data.is_sprint, data.gp_name, data.country, data.sessions) },
+                                onClick = { onNavigateToSessions(data.is_sprint, data.gp_name, data.country, data.sessions, data.status) },
                                 modifier = Modifier.fillMaxWidth().height(56.dp),
                                 shape = RoundedCornerShape(16.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00FFCC).copy(alpha = 0.9f))
@@ -863,8 +913,8 @@ fun HomeScreen(raceWeek: RaceWeekResponse?, isLoading: Boolean, onNavigate: (App
                                 alpha = 0.99f 
                                 translationX = 20.dp.toPx() // Copre il padding orizzontale di destra
                                 translationY = -26.dp.toPx() // Copre lo spacer in alto
-                                scaleX = 1.2f // Ingrandisce per non lasciare bordi vuoti
-                                scaleY = 1.2f
+                                scaleX = 1.26f // Ingrandisce per non lasciare bordi vuoti
+                                scaleY = 1.26f
                             } 
                             .drawWithContent {
                                 drawContent()
@@ -972,8 +1022,8 @@ fun HomeScreen(raceWeek: RaceWeekResponse?, isLoading: Boolean, onNavigate: (App
 
 @Composable
 fun FullWidthGlassCard(title: String, content: String, accentColor: Color, isHighlighted: Boolean = false, onClick: () -> Unit) {
-    val cardBackground = if (isHighlighted) Color(0xFF00FFCC).copy(alpha = 0.05f) else Color.White.copy(alpha = 0.05f)
-    val cardBorder = if (isHighlighted) Color(0xFF00FFCC).copy(alpha = 0.8f) else Color.White.copy(alpha = 0.1f)
+    val cardBackground = if (isHighlighted) Color(0xFF00FFCC).copy(alpha = 0.15f) else Color.White.copy(alpha = 0.05f)
+    val cardBorder = if (isHighlighted) Color(0xFF00FFCC) else Color.White.copy(alpha = 0.1f)
     val titleColor = if (isHighlighted) Color(0xFF00FFCC) else accentColor
     Surface(modifier = Modifier.fillMaxWidth().height(72.dp).clickable { onClick() }, shape = RoundedCornerShape(20.dp), color = cardBackground, border = BorderStroke(0.5.dp, cardBorder)) {
         Row(
@@ -1019,8 +1069,14 @@ fun LastSessionCard(results: List<RaceResultResponse>, modifier: Modifier) {
                                 Text("P${res.position}", color = if (index == 0) Color(0xFF00FFCC) else Color.White.copy(alpha = 0.5f), fontSize = 12.sp, fontWeight = FontWeight.Black, modifier = Modifier.width(22.dp))
                                 Text(lastName, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 65.dp))
                             }
+                            
+                            val isDnf = isDnfOrDns(res.time)
+                            val isDns = isDnf && (res.time.lowercase().contains("dns") || res.time.lowercase().contains("withdrawn"))
+                            val isDsq = isDnf && (res.time.lowercase().contains("dsq") || res.time.lowercase().contains("disqualified"))
+                            val statusText = if (isDnf) { if (isDsq) "DSQ" else if (isDns) "DNS" else "DNF" } else res.time
+
                             Text(
-                                text = if (isDnfOrDns(res.time)) "DNF" else res.time, 
+                                text = statusText, 
                                 color = if (index == 0) Color.White else Color.White.copy(alpha = 0.5f), 
                                 fontSize = 10.sp, 
                                 fontWeight = FontWeight.Black, 

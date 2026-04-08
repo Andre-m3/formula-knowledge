@@ -41,7 +41,7 @@ class Race(Base):
     
     laps = Column(Integer, default=57)
     circuit_length = Column(String, nullable=True)
-    altitude = Column(String, nullable=True)
+    corners = Column(Integer, nullable=True)
     lap_record = Column(String, nullable=True)
     is_sprint = Column(Boolean, default=False)
     cancelled = Column(Boolean, default=False)

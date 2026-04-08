@@ -32,7 +32,7 @@ data class CircuitDetailEntity(
     val location: String,
     val country: String,
     val length: String,
-    val altitude: String,
+    val corners: Int,
     val laps: Int,
     val record: String,
     val is_sprint: Boolean,
@@ -186,7 +186,7 @@ interface GeneralDao {
 
 @Database(
     entities = [DriverStandingEntity::class, ConstructorStandingEntity::class, CircuitDetailEntity::class, RaceResultEntity::class, CalendarEntity::class, RaceWeekEntity::class],
-    version = 9,
+    version = 10,
     exportSchema = false
 )
 abstract class FormulaDatabase : RoomDatabase() {
