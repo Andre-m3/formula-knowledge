@@ -87,6 +87,7 @@ data class RaceWeekEntity(
     val round_number: Int,
     val is_sprint: Boolean,
     val dates_joined: String,
+    val status: String,
     val weather_json: String?, // Salviamo il meteo convertito in testo
     val weather_last_updated: Long,
     val fp1_time: String?,
@@ -96,6 +97,38 @@ data class RaceWeekEntity(
     val sprint_race_time: String?,
     val quali_time: String?,
     val race_time: String?
+)
+
+@Entity(tableName = "driver_career_stats")
+data class DriverStatsEntity(
+    @PrimaryKey val driver_id: String,
+    val total_races: Int,
+    val wins: Int,
+    val podiums: Int,
+    val pole_positions: Int,
+    val world_championships: Int,
+    
+    val best_race_result: String,
+    val best_championship_result: String,
+    val best_grid_position: String,
+    val fastest_laps: Int,
+    val dns_count: Int,
+    val dnf_count: Int,
+    val dsq_count: Int,
+    
+    val sprint_starts: Int,
+    val sprint_wins: Int,
+    val best_sprint_result: String,
+    val best_sprint_grid_position: String,
+    
+    val place_of_birth: String,
+    val date_of_birth: String,
+    val first_gp: String,
+    val first_win: String,
+    val hat_tricks: Int,
+    val grand_slams: Int,
+    
+    val last_updated: String
 )
 
 // --- 2. DAOs (Data Access Objects) ---
@@ -182,17 +215,27 @@ interface GeneralDao {
     suspend fun insertRaceWeek(raceWeek: RaceWeekEntity)
 }
 
+@Dao
+interface DriverStatsDao {
+    @Query("SELECT * FROM driver_career_stats WHERE driver_id = :driverId")
+    fun getStats(driverId: String): Flow<DriverStatsEntity?>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertStats(stats: DriverStatsEntity)
+}
+
 // --- 3. DATABASE (Il motore Room) ---
 
 @Database(
-    entities = [DriverStandingEntity::class, ConstructorStandingEntity::class, CircuitDetailEntity::class, RaceResultEntity::class, CalendarEntity::class, RaceWeekEntity::class],
-    version = 10,
+    entities = [DriverStandingEntity::class, ConstructorStandingEntity::class, CircuitDetailEntity::class, RaceResultEntity::class, CalendarEntity::class, RaceWeekEntity::class, DriverStatsEntity::class],
+    version = 12,
     exportSchema = false
 )
 abstract class FormulaDatabase : RoomDatabase() {
     abstract fun standingsDao(): StandingsDao
     abstract fun raceDao(): RaceDao
     abstract fun generalDao(): GeneralDao
+    abstract fun driverStatsDao(): DriverStatsDao
 
     companion object {
         @Volatile

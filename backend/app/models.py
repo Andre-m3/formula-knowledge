@@ -1,6 +1,7 @@
-from sqlalchemy import Column, Integer, String, Float, Date, ForeignKey, Boolean
+from sqlalchemy import Column, Integer, String, Float, Date, ForeignKey, Boolean, DateTime
 from sqlalchemy.orm import Mapped, relationship
 from typing import Optional
+from datetime import datetime, timezone
 from .database import Base
 
 class Team(Base):
@@ -105,3 +106,38 @@ class TechnicalUpdate(Base):
     team_id = Column(Integer, ForeignKey("teams.id"))
     race = relationship("Race", back_populates="updates")
     team = relationship("Team", back_populates="updates")
+
+class DriverCareerStats(Base):
+    __tablename__ = "driver_career_stats"
+
+    driver_id = Column(String, primary_key=True, index=True)
+    total_races = Column(Integer, default=0)
+    wins = Column(Integer, default=0)
+    podiums = Column(Integer, default=0)
+    pole_positions = Column(Integer, default=0)
+    world_championships = Column(Integer, default=0)
+
+    # Nuove Statistiche (Race)
+    best_race_result = Column(String, default="N/A")
+    best_championship_result = Column(String, default="N/A")
+    best_grid_position = Column(String, default="N/A")
+    fastest_laps = Column(Integer, default=0)
+    dns_count = Column(Integer, default=0)
+    dnf_count = Column(Integer, default=0)
+    dsq_count = Column(Integer, default=0)
+
+    # Nuove Statistiche (Sprint)
+    sprint_starts = Column(Integer, default=0)
+    sprint_wins = Column(Integer, default=0)
+    best_sprint_result = Column(String, default="N/A")
+    best_sprint_grid_position = Column(String, default="N/A")
+
+    # Dettagli Personali
+    place_of_birth = Column(String, default="N/A")
+    date_of_birth = Column(String, default="N/A")
+    first_gp = Column(String, default="N/A")
+    first_win = Column(String, default="N/A")
+    hat_tricks = Column(Integer, default=0)
+    grand_slams = Column(Integer, default=0)
+
+    last_updated = Column(DateTime, default=lambda: datetime.now(timezone.utc))

@@ -43,7 +43,7 @@ DRIVERS_DATA = [
     {"first_name": "Alexander", "last_name": "Albon", "number": 23, "nationality": "Thai", "team_name": "Atlassian Williams F1 Team"},
     {"first_name": "Carlos", "last_name": "Sainz Jr.", "number": 55, "nationality": "Spanish", "team_name": "Atlassian Williams F1 Team"},
     # RB
-    {"first_name": "Arvid", "last_name": "Limblad", "number": 41, "nationality": "British", "team_name": "Visa Cash App Racing Bulls"},
+    {"first_name": "Arvid", "last_name": "Lindblad", "number": 41, "nationality": "British", "team_name": "Visa Cash App Racing Bulls"},
     {"first_name": "Liam", "last_name": "Lawson", "number": 30, "nationality": "New Zealander", "team_name": "Visa Cash App Racing Bulls"},
     # Audi
     {"first_name": "Nico", "last_name": "Hülkenberg", "number": 27, "nationality": "German", "team_name": "Audi Revolut F1 Team"},

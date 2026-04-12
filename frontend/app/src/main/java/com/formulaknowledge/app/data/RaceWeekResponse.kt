@@ -7,6 +7,7 @@ data class RaceWeekResponse(
     val circuit_name: String? = null,
     val round_number: Int,
     val is_sprint: Boolean,
+    val status: String,
     val dates: List<String>,
     val weather_forecast: WeatherForecast?,
     val sessions: SessionTimes

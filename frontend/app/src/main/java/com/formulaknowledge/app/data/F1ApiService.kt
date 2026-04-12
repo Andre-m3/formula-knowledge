@@ -27,4 +27,7 @@ interface F1ApiService {
 
     @GET("api/v1/circuit/{round_number}")
     suspend fun getCircuitDetails(@Path("round_number") round: Int): CircuitDetailResponse
+
+    @GET("api/v1/drivers/{driver_id}/stats")
+    suspend fun getDriverStats(@Path("driver_id") driverId: String): DriverStatsResponse
 }

@@ -68,7 +68,7 @@ fun UpdatesScreen() {
         val sessions = SessionTimes(entity.fp1_time, entity.fp2_time, entity.fp3_time, entity.sprint_shootout_time, entity.sprint_race_time, entity.quali_time, entity.race_time)
         RaceWeekResponse(
             entity.gp_name, entity.country, entity.city, entity.circuit_name,
-            entity.round_number, entity.is_sprint, entity.dates_joined.split(","), weather, sessions
+            entity.round_number, entity.is_sprint, entity.status, entity.dates_joined.split(","), weather, sessions
         )
     }
 
@@ -176,7 +176,7 @@ fun UpdatesScreen() {
                             selectedGpForSessions = raceWeek?.gp_name ?: ""
                             selectedCountryForSessions = raceWeek?.country ?: ""
                             selectedSessions = raceWeek?.sessions
-                            selectedGpStatusForSessions = "current"
+                            selectedGpStatusForSessions = raceWeek?.status ?: "future"
                             previousScreenForSessions = AppScreen.HOME
                             currentScreen = it
                         } else if (it == AppScreen.UPDATES_LIST && updatesWrapper?.status == "not_ready") {
@@ -597,34 +597,168 @@ fun HistoricalStatItem(label: String, value: String, icon: androidx.compose.ui.g
 
 @Composable
 fun DriverDetailScreen(driverName: String) {
+    val context = LocalContext.current
+    val database = remember { FormulaDatabase.getDatabase(context) }
+    val repository = remember { FormulaRepository(database) }
+
     val nameParts = driverName.split(" ")
     val firstName = nameParts.dropLast(1).joinToString(" ").uppercase()
     val lastName = nameParts.lastOrNull()?.uppercase() ?: ""
 
+    // Map del driverId a partire dal nome, compatibile con il Backend
+    val driverId = remember(driverName) {
+        val lowerLast = lastName.lowercase()
+        if (lowerLast.contains("sainz")) "sainz" 
+        else if (lowerLast == "verstappen") "max_verstappen" 
+        else if (lowerLast == "lindblad" || lowerLast == "limblad") "arvid_lindblad"
+        else lowerLast.replace(" jr.", "")
+    }
+
+    val stats by repository.getDriverStats(driverId).collectAsState(initial = null)
+
+    LaunchedEffect(driverId) {
+        repository.refreshDriverStats(driverId)
+    }
+
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
-        Spacer(modifier = Modifier.height(46.dp))
-        Text(
-            text = "$firstName\n$lastName",
-            color = Color.White,
-            fontSize = 54.sp,
-            fontWeight = FontWeight.Black,
-            fontStyle = FontStyle.Italic,
-            letterSpacing = (-3).sp,
-            lineHeight = 44.sp
-        )
-        Text(
-            text = "DRIVER STATS",
-            color = Color(0xFF00FFCC),
-            fontSize = 38.sp,
-            fontWeight = FontWeight.Black,
-            fontStyle = FontStyle.Italic,
-            letterSpacing = (-2).sp,
-            modifier = Modifier.offset(y = (-10).dp)
-        )
+        Spacer(modifier = Modifier.height(26.dp))
+        
+        Box(modifier = Modifier.fillMaxWidth().height(160.dp), contentAlignment = Alignment.BottomStart) {
+            val countryName = getDriverCountryForFlag(driverId)
+            val resourceName = "flag_$countryName"
+            val resourceId = remember(resourceName) {
+                context.resources.getIdentifier(resourceName, "drawable", context.packageName)
+            }
+
+            if (resourceId != 0) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .fillMaxWidth(0.8f)
+                        .align(Alignment.CenterEnd)
+                        .graphicsLayer {
+                            alpha = 0.99f
+                            translationX = 20.dp.toPx()
+                            translationY = -26.dp.toPx()
+                            scaleX = 1.26f
+                            scaleY = 1.26f
+                        }
+                        .drawWithContent {
+                            drawContent()
+                            drawRect(
+                                brush = Brush.horizontalGradient(
+                                    colors = listOf(Color.Transparent, Color.Black),
+                                    startX = 0f,
+                                    endX = size.width * 0.6f
+                                ),
+                                blendMode = BlendMode.DstIn
+                            )
+                            drawRect(
+                                brush = Brush.verticalGradient(
+                                    colors = listOf(Color.Black, Color.Transparent),
+                                    startY = size.height * 0.35f,
+                                    endY = size.height
+                                ),
+                                blendMode = BlendMode.DstIn
+                            )
+                        }
+                ) {
+                    Image(
+                        painter = painterResource(id = resourceId),
+                        contentDescription = "Driver Nationality Flag",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize().alpha(0.35f)
+                    )
+                }
+            }
+
+            Column {
+                Text(
+                    text = "$firstName\n$lastName",
+                    color = Color.White,
+                    fontSize = 54.sp,
+                    fontWeight = FontWeight.Black,
+                    fontStyle = FontStyle.Italic,
+                    letterSpacing = (-3).sp,
+                    lineHeight = 44.sp
+                )
+                Text(
+                    text = "DRIVER STATS",
+                    color = Color(0xFF00FFCC),
+                    fontSize = 38.sp,
+                    fontWeight = FontWeight.Black,
+                    fontStyle = FontStyle.Italic,
+                    letterSpacing = (-2).sp,
+                    modifier = Modifier.offset(y = (-10).dp)
+                )
+            }
+        }
         
         Spacer(modifier = Modifier.height(24.dp))
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
-            Text(text = "Pagina statistiche in arrivo...", color = Color.White.copy(alpha = 0.3f), fontSize = 16.sp)
+
+        if (stats == null) {
+            Box(modifier = Modifier.fillMaxSize().padding(top = 40.dp), contentAlignment = Alignment.TopCenter) {
+                CircularProgressIndicator(color = Color(0xFF00FFCC))
+            }
+        } else {
+            stats?.let { statData ->
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    StatGlassCard(title = "WORLD CHAMP.", value = statData.world_championships.toString(), isGold = true, modifier = Modifier.weight(1f).height(110.dp))
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    StatGlassCard(title = "WINS", value = statData.wins.toString(), modifier = Modifier.weight(1f).height(90.dp))
+                    StatGlassCard(title = "PODIUMS", value = statData.podiums.toString(), modifier = Modifier.weight(1f).height(90.dp))
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    StatGlassCard(title = "POLES", value = statData.pole_positions.toString(), modifier = Modifier.weight(1f).height(90.dp))
+                    StatGlassCard(title = "RACES", value = statData.total_races.toString(), modifier = Modifier.weight(1f).height(90.dp))
+                }
+            }
+        }
+    }
+}
+
+fun getDriverCountryForFlag(driverId: String): String {
+    return when(driverId) {
+        "russell", "hamilton", "norris", "arvid_lindblad", "bearman" -> "uk"
+        "antonelli" -> "italy"
+        "max_verstappen" -> "netherlands"
+        "hadjar", "gasly", "ocon" -> "france"
+        "leclerc" -> "monaco"
+        "piastri" -> "australia"
+        "alonso", "sainz" -> "spain"
+        "stroll" -> "canada"
+        "colapinto" -> "argentina"
+        "albon" -> "thailand"
+        "lawson" -> "new_zealand"
+        "hulkenberg" -> "germany"
+        "bortoleto" -> "brazil"
+        "perez" -> "mexico"
+        "bottas" -> "finland"
+        else -> ""
+    }
+}
+
+@Composable
+fun StatGlassCard(title: String, value: String, isGold: Boolean = false, modifier: Modifier = Modifier) {
+    val color = if (isGold) Color(0xFFFFD700) else Color(0xFF00FFCC)
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(20.dp),
+        color = Color.White.copy(alpha = 0.03f),
+        border = BorderStroke(1.dp, color.copy(alpha = if (isGold) 0.6f else 0.2f))
+    ) {
+        Column(modifier = Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                text = value,
+                color = Color.White,
+                fontSize = if (isGold) 48.sp else 34.sp,
+                fontWeight = FontWeight.Black,
+                fontStyle = FontStyle.Italic
+            )
+            Text(text = title, color = color.copy(alpha = 0.8f), fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
         }
     }
 }

@@ -4,11 +4,13 @@ from bs4 import BeautifulSoup
 import io
 import json
 import os
+from dotenv import load_dotenv
 import google.generativeai as genai
 from .calendar_service import CalendarService
 
 class FiaScraperService:
     def __init__(self):
+        load_dotenv()
         self.docs_url = "https://www.fia.com/documents/championships/fia-formula-one-world-championship-14/season/season-2026-2072"
         self.base_url = "https://www.fia.com"
         # Configurazione Gemini

@@ -11,6 +11,7 @@ class FormulaRepository(private val database: FormulaDatabase) {
     private val dao = database.standingsDao()
     private val raceDao = database.raceDao()
     private val generalDao = database.generalDao()
+    private val driverStatsDao = database.driverStatsDao()
 
     // I Flow sono dei "canali aperti" con il database:
     // appena il DB si aggiorna, la UI riceve i nuovi dati in automatico!
@@ -128,11 +129,50 @@ class FormulaRepository(private val database: FormulaDatabase) {
             val weatherJson = Gson().toJson(apiData.weather_forecast)
             val entity = RaceWeekEntity(
                 1, apiData.gp_name, apiData.country, apiData.city, apiData.circuit_name,
-                apiData.round_number, apiData.is_sprint, apiData.dates.joinToString(","), weatherJson, now,
+                apiData.round_number, apiData.is_sprint, apiData.dates.joinToString(","), apiData.status, weatherJson, now,
                 apiData.sessions.fp1, apiData.sessions.fp2, apiData.sessions.fp3,
                 apiData.sessions.sprint_shootout, apiData.sessions.sprint_race, apiData.sessions.quali, apiData.sessions.race
             )
             generalDao.insertRaceWeek(entity)
         } catch (e: Exception) { /* Ignoriamo l'errore, la UI gestirà i dati vecchi/assenti */ }
+    }
+
+    fun getDriverStats(driverId: String): Flow<DriverStatsEntity?> = driverStatsDao.getStats(driverId)
+
+    suspend fun refreshDriverStats(driverId: String) {
+        try {
+            val apiData = RetrofitClient.apiService.getDriverStats(driverId)
+            val entity = DriverStatsEntity(
+                apiData.driver_id,
+                apiData.total_races,
+                apiData.wins,
+                apiData.podiums,
+                apiData.pole_positions,
+                apiData.world_championships,
+                
+                apiData.best_race_result,
+                apiData.best_championship_result,
+                apiData.best_grid_position,
+                apiData.fastest_laps,
+                apiData.dns_count,
+                apiData.dnf_count,
+                apiData.dsq_count,
+                
+                apiData.sprint_starts,
+                apiData.sprint_wins,
+                apiData.best_sprint_result,
+                apiData.best_sprint_grid_position,
+                
+                apiData.place_of_birth,
+                apiData.date_of_birth,
+                apiData.first_gp,
+                apiData.first_win,
+                apiData.hat_tricks,
+                apiData.grand_slams,
+                
+                apiData.last_updated
+            )
+            driverStatsDao.insertStats(entity)
+        } catch (e: Exception) {}
     }
 }

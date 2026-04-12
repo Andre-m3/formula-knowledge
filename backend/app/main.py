@@ -9,7 +9,6 @@ from . import database, models
 from .services.fia_scraper import FiaScraperService
 from .services.weather_service import WeatherService
 from .services.calendar_service import CalendarService
-from .services.results_service import ResultsService
 from .services.external_api_service import ExternalApiService
 
 app = FastAPI(title="Formula Knowledge API")
@@ -52,6 +51,7 @@ class RaceWeekResponse(BaseModel):
     circuit_name: Optional[str] = None
     round_number: int
     is_sprint: bool
+    status: str
     dates: List[str]
     weather_forecast: Optional[WeatherForecastSchema] = None
     sessions: SessionTimesSchema
@@ -109,8 +109,8 @@ class CircuitDetailResponse(BaseModel):
     laps: int
     record: str
     is_sprint: bool
-    dates: List[str]
     status: str
+    dates: List[str]
     previous_winner: str
     most_driver_wins: str
     most_constructor_wins: str
@@ -118,6 +118,36 @@ class CircuitDetailResponse(BaseModel):
     most_poles: str
     num_races_held: int
     sessions: SessionTimesSchema
+
+class DriverStatsResponseSchema(BaseModel):
+    driver_id: str
+    total_races: int
+    wins: int
+    podiums: int
+    pole_positions: int
+    world_championships: int
+
+    best_race_result: str
+    best_championship_result: str
+    best_grid_position: str
+    fastest_laps: int
+    dns_count: int
+    dnf_count: int
+    dsq_count: int
+
+    sprint_starts: int
+    sprint_wins: int
+    best_sprint_result: str
+    best_sprint_grid_position: str
+
+    place_of_birth: str
+    date_of_birth: str
+    first_gp: str
+    first_win: str
+    hat_tricks: int
+    grand_slams: int
+
+    last_updated: datetime
 
 # --- ENDPOINTS ---
 
@@ -143,6 +173,15 @@ async def get_current_raceweek(db: Session = Depends(database.get_db)):
         "race": db_race.race_time
     } if db_race else {}
         
+    # Calcoliamo se la gara è "questa settimana" (entro 6 giorni da oggi) o se è lontana nel futuro
+    now_utc = datetime.now(timezone.utc).date()
+    if race_date < now_utc:
+        status = "past"
+    elif race_date <= now_utc + timedelta(days=6):
+        status = "current"
+    else:
+        status = "future"
+
     return {
         "gp_name": race_info["name"],
         "country": race_info["country"],
@@ -150,6 +189,7 @@ async def get_current_raceweek(db: Session = Depends(database.get_db)):
         "circuit_name": race_info.get("circuit_name"),
         "round_number": race_info["round"],
         "is_sprint": is_sprint,
+        "status": status,
         "dates": dates_list,
         "weather_forecast": forecast,
         "sessions": sessions
@@ -239,8 +279,7 @@ def get_race_results(round_number: int, db: Session = Depends(database.get_db)):
             for d in db_drivers:
                 db_last_lower = d.last_name.lower()
                 if (db_last_lower in api_driver_lower or 
-                    db_last_lower.replace(" jr.", "") in api_driver_lower or
-                    ("limblad" in db_last_lower and "lindblad" in api_driver_lower)):
+                    db_last_lower.replace(" jr.", "") in api_driver_lower):
                     db_driver = d
                     break
                     
@@ -354,3 +393,11 @@ def get_past_gp_updates(round_number: int, db: Session = Depends(database.get_db
             teams_dict[team_name] = {"color": up.team.color_hex, "updates": []}
         teams_dict[team_name]["updates"].append(up.description)
     return [TeamUpdatesResponse(team_name=k, team_color_hex=v["color"], updates=v["updates"]) for k, v in teams_dict.items()]
+
+@app.get("/api/v1/drivers/{driver_id}/stats", response_model=DriverStatsResponseSchema)
+def get_driver_stats(driver_id: str, db: Session = Depends(database.get_db)):
+    # Nessuna chiamata esterna! Risposta fulminea grazie all'Internal Aggregator.
+    stats = db.query(models.DriverCareerStats).filter(models.DriverCareerStats.driver_id == driver_id).first()
+    if not stats:
+        raise HTTPException(status_code=404, detail="Driver stats not found")
+    return stats

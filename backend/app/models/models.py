@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import Column, String, Boolean, ForeignKey, DateTime
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
@@ -38,4 +38,4 @@ class FiaReport(Base):
     race_id = Column(String, index=True, nullable=False) # Es. "monza_2024"
     team_id = Column(String, ForeignKey("teams.id"), nullable=False)
     translated_text = Column(String, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
