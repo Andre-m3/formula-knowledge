@@ -125,6 +125,7 @@ class DriverStatsResponseSchema(BaseModel):
     wins: int
     podiums: int
     pole_positions: int
+    wins_from_pole: int
     world_championships: int
 
     best_race_result: str

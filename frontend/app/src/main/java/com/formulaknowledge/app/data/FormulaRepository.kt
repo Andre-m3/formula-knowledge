@@ -36,6 +36,31 @@ class FormulaRepository(private val database: FormulaDatabase) {
             dao.updateDriverStandings(driverEntities)
             dao.updateConstructorStandings(constructorEntities)
 
+            // Pre-fetch silente: scarichiamo in background le statistiche dei piloti
+            coroutineScope {
+                apiDrivers.forEach { driver ->
+                    launch {
+                        val lastName = driver.driver_name.split(" ").lastOrNull()?.uppercase() ?: ""
+                        val lowerLast = lastName.lowercase()
+                            .replace("ü", "u")
+                            .replace("é", "e")
+                            .replace(" jr.", "")
+                        
+                        val driverId = when {
+                            lowerLast.contains("sainz") -> "sainz"
+                            lowerLast == "verstappen" -> "max_verstappen"
+                            lowerLast == "lindblad" || lowerLast == "limblad" -> "arvid_lindblad"
+                            else -> lowerLast
+                        }
+
+                        val existingStats = driverStatsDao.getStats(driverId).firstOrNull()
+                        if (existingStats == null) {
+                            refreshDriverStats(driverId)
+                        }
+                    }
+                }
+            }
+
         } catch (e: Exception) {
             // Se c'è un errore (es. nessuna connessione WiFi), lo ignoriamo!
             // L'utente continuerà felicemente a visualizzare i dati salvati in locale nel DB.
@@ -148,6 +173,7 @@ class FormulaRepository(private val database: FormulaDatabase) {
                 apiData.wins,
                 apiData.podiums,
                 apiData.pole_positions,
+                apiData.wins_from_pole,
                 apiData.world_championships,
                 
                 apiData.best_race_result,

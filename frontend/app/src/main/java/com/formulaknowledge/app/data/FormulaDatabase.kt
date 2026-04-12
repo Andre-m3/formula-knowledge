@@ -106,6 +106,7 @@ data class DriverStatsEntity(
     val wins: Int,
     val podiums: Int,
     val pole_positions: Int,
+    val wins_from_pole: Int,
     val world_championships: Int,
     
     val best_race_result: String,
@@ -228,7 +229,7 @@ interface DriverStatsDao {
 
 @Database(
     entities = [DriverStandingEntity::class, ConstructorStandingEntity::class, CircuitDetailEntity::class, RaceResultEntity::class, CalendarEntity::class, RaceWeekEntity::class, DriverStatsEntity::class],
-    version = 12,
+    version = 13,
     exportSchema = false
 )
 abstract class FormulaDatabase : RoomDatabase() {

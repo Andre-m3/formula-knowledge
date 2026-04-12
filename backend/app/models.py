@@ -115,6 +115,7 @@ class DriverCareerStats(Base):
     wins = Column(Integer, default=0)
     podiums = Column(Integer, default=0)
     pole_positions = Column(Integer, default=0)
+    wins_from_pole = Column(Integer, default=0)
     world_championships = Column(Integer, default=0)
 
     # Nuove Statistiche (Race)
