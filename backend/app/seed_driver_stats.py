@@ -14,6 +14,36 @@ DRIVER_IDS = [
     "bortoleto", "ocon", "bearman", "perez", "bottas"
 ]
 
+# ==============================================================
+# DIZIONARIO DATI MANUALI
+# Compila qui i dati dei piloti. Se un pilota manca, userà "default"
+# ==============================================================
+MANUAL_DRIVER_DATA = {
+    "max_verstappen": {"place_of_birth": "Hasselt, Belgium", "best_championship_result": "1st (4 times)", "hat_tricks": 14, "grand_slams": 6},
+    "hamilton": {"place_of_birth": "Stevenage, England", "best_championship_result": "1st (7 times)", "hat_tricks": 19, "grand_slams": 6},
+    "leclerc": {"place_of_birth": "Monte Carlo, Monaco", "best_championship_result": "2nd (2022)", "hat_tricks": 2, "grand_slams": 1},
+    "russell": {"place_of_birth": "King's Lynn, England", "best_championship_result": "4th (2022, '25)", "hat_tricks": 1, "grand_slams": 0},
+    "antonelli": {"place_of_birth": "Bologna, Italy", "best_championship_result": "7th (2025)", "hat_tricks": 2, "grand_slams": 0},
+    "hadjar": {"place_of_birth": "Paris, France", "best_championship_result": "12th (2025)", "hat_tricks": 0, "grand_slams": 0},
+    "norris": {"place_of_birth": "Bristol, England", "best_championship_result": "1st (2025)", "hat_tricks": 3, "grand_slams": 0},
+    "piastri": {"place_of_birth": "Melbourne, Australia", "best_championship_result": "3rd (2025)", "hat_tricks": 3, "grand_slams": 1},
+    "alonso": {"place_of_birth": "Oviedo, Spain", "best_championship_result": "1st (2005, '07)", "hat_tricks": 5, "grand_slams": 1},
+    "stroll": {"place_of_birth": "Montréal, Canada", "best_championship_result": "10th (2023)", "hat_tricks": 0, "grand_slams": 0},
+    "gasly": {"place_of_birth": "Rouen, France", "best_championship_result": "7th (2019)", "hat_tricks": 0, "grand_slams": 0},
+    "colapinto": {"place_of_birth": "Buenos Aires, Argentina", "best_championship_result": "19th (2024)", "hat_tricks": 0, "grand_slams": 0},
+    "albon": {"place_of_birth": "London, England", "best_championship_result": "7th (2020)", "hat_tricks": 0, "grand_slams": 0},
+    "sainz": {"place_of_birth": "Madrid, Spain", "best_championship_result": "5th (2021, '22, '24)", "hat_tricks": 0, "grand_slams": 0},
+    "arvid_lindblad": {"place_of_birth": "Virginia Water, England", "best_championship_result": "rookie (2026)", "hat_tricks": 0, "grand_slams": 0},
+    "lawson": {"place_of_birth": "Hastings, New Zealand", "best_championship_result": "14th (2025)", "hat_tricks": 0, "grand_slams": 0},
+    "hulkenberg": {"place_of_birth": "Emmerich, Germany", "best_championship_result": "7th (2018)", "hat_tricks": 0, "grand_slams": 0},
+    "bortoleto": {"place_of_birth": "Sao Paulo, Brazil", "best_championship_result": "19th (2025)", "hat_tricks": 0, "grand_slams": 0},
+    "ocon": {"place_of_birth": "Evreux, France", "best_championship_result": "8th (2017, '22)", "hat_tricks": 0, "grand_slams": 0},
+    "bearman": {"place_of_birth": "Chelmsford, England", "best_championship_result": "13th (2025)", "hat_tricks": 0, "grand_slams": 0},
+    "perez": {"place_of_birth": "Guadalajara, Mexico", "best_championship_result": "2nd (2023)", "hat_tricks": 0, "grand_slams": 0},
+    "bottas": {"place_of_birth": "Nastola, Finland", "best_championship_result": "2nd (2019, '20)", "hat_tricks": 2, "grand_slams": 0},
+    "default": {"place_of_birth": "Unknown", "best_championship_result": "N/A", "hat_tricks": 0, "grand_slams": 0}
+}
+
 def fetch_with_retry(url):
     for _ in range(3):
         try:
@@ -37,12 +67,17 @@ def get_driver_stats(driver_id: str):
         "world_championships": 0, "best_race_result": 999, "best_grid_position": 999,
         "best_championship_result": 999, "fastest_laps": 0,
         "dns_count": 0, "dnf_count": 0, "dsq_count": 0,
-        "sprint_starts": 0, "sprint_wins": 0, 
+        "sprint_starts": 0, "sprint_wins": 0, "sprint_top_3": 0,
         "best_sprint_result": 999, "best_sprint_grid_position": 999,
-        "place_of_birth": "N/A", "date_of_birth": "N/A",
-        "first_gp": "N/A", "first_win": "N/A",
-        "hat_tricks": 0, "grand_slams": 0
+        "date_of_birth": "N/A",
+        "first_gp": "N/A", "first_win": "N/A"
     }
+    
+    manual_info = MANUAL_DRIVER_DATA.get(driver_id, MANUAL_DRIVER_DATA["default"])
+    stats["place_of_birth"] = manual_info["place_of_birth"]
+    stats["best_championship_result"] = manual_info["best_championship_result"]
+    stats["hat_tricks"] = manual_info["hat_tricks"]
+    stats["grand_slams"] = manual_info["grand_slams"]
 
     # 1. Risultati Gara (Races, Wins, Podiums)
     offset = 0
@@ -63,7 +98,10 @@ def get_driver_stats(driver_id: str):
                     stats["first_gp"] = f"{r['season']} {r['raceName']}"
 
                 pos = int(r["Results"][0]["position"])
-                if pos == 1: stats["wins"] += 1
+                grid = int(r["Results"][0].get("grid", 0))
+                if pos == 1: 
+                    stats["wins"] += 1
+                    if grid == 1: stats["wins_from_pole"] += 1
                 if pos <= 3: stats["podiums"] += 1
                 if pos < stats["best_race_result"]: stats["best_race_result"] = pos
                 if pos == 1 and stats["first_win"] == "N/A": stats["first_win"] = f"{r['season']} {r['raceName']}"
@@ -123,6 +161,7 @@ def get_driver_stats(driver_id: str):
             s_pos = int(s["SprintResults"][0]["position"])
             s_grid = int(s["SprintResults"][0]["grid"])
             if s_pos == 1: stats["sprint_wins"] += 1
+            if s_pos <= 3: stats["sprint_top_3"] += 1
             if s_pos < stats["best_sprint_result"]: stats["best_sprint_result"] = s_pos
             if s_grid > 0 and s_grid < stats["best_sprint_grid_position"]: stats["best_sprint_grid_position"] = s_grid
     time.sleep(0.1)
@@ -141,10 +180,8 @@ def get_driver_stats(driver_id: str):
         current_year = str(datetime.now(timezone.utc).year)
         # Assicuriamoci che l'anno provvisorio (se è attualmente 1°) non venga contato fino a fine stagione
         valid_seasons = [s for s in seasons if s.get("season") != current_year]
-        stats["world_championships"] = len(valid_seasons)
-
-    # Restituiamo N/A per il momento su best championship per risparmiare query pesanti. 
-    stats["best_championship_result"] = "N/A" 
+        # Se world_championships era calcolato precedentemente ma ora aggiorniamo i campioni da app_champs, lasciamo a len() o togliamo
+        stats["world_championships"] = len(valid_seasons) 
 
     time.sleep(0.2)
 
@@ -176,6 +213,7 @@ def seed_driver_stats():
         
         stat_obj.sprint_starts = data["sprint_starts"]
         stat_obj.sprint_wins = data["sprint_wins"]
+        stat_obj.sprint_top_3 = data["sprint_top_3"]
         stat_obj.best_sprint_result = data["best_sprint_result"]
         stat_obj.best_sprint_grid_position = data["best_sprint_grid_position"]
         

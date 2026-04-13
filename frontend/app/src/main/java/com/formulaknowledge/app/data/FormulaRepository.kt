@@ -12,6 +12,9 @@ class FormulaRepository(private val database: FormulaDatabase) {
     private val raceDao = database.raceDao()
     private val generalDao = database.generalDao()
     private val driverStatsDao = database.driverStatsDao()
+    private val constructorStatsDao = database.constructorStatsDao()
+    private val driverSeasonStatsDao = database.driverSeasonStatsDao()
+    private val constructorSeasonStatsDao = database.constructorSeasonStatsDao()
 
     // I Flow sono dei "canali aperti" con il database:
     // appena il DB si aggiorna, la UI riceve i nuovi dati in automatico!
@@ -186,6 +189,7 @@ class FormulaRepository(private val database: FormulaDatabase) {
                 
                 apiData.sprint_starts,
                 apiData.sprint_wins,
+                apiData.sprint_top_3,
                 apiData.best_sprint_result,
                 apiData.best_sprint_grid_position,
                 
@@ -199,6 +203,92 @@ class FormulaRepository(private val database: FormulaDatabase) {
                 apiData.last_updated
             )
             driverStatsDao.insertStats(entity)
+        } catch (e: Exception) {}
+    }
+
+    fun getConstructorStats(constructorId: String): Flow<ConstructorStatsEntity?> = constructorStatsDao.getStats(constructorId)
+
+    suspend fun refreshConstructorStats(constructorId: String) {
+        try {
+            val apiData = RetrofitClient.apiService.getConstructorStats(constructorId)
+            val entity = ConstructorStatsEntity(
+                apiData.constructor_id,
+                apiData.total_races,
+                apiData.wins,
+                apiData.podiums,
+                apiData.driver_championships,
+                apiData.constructor_championships,
+                apiData.first_gp_year,
+                apiData.first_win,
+                apiData.pole_positions,
+                apiData.fastest_laps,
+                apiData.total_points,
+                apiData.seasons_entered,
+                apiData.best_race_result,
+                apiData.best_championship_result,
+                apiData.power_unit,
+                apiData.team_principal,
+                apiData.base_location,
+                apiData.last_updated
+            )
+            constructorStatsDao.insertStats(entity)
+        } catch (e: Exception) {}
+    }
+
+    fun getDriverSeasonStats(driverId: String): Flow<DriverSeasonStatsEntity?> = driverSeasonStatsDao.getStats(driverId)
+
+    suspend fun refreshDriverSeasonStats(driverId: String) {
+        try {
+            val apiData = RetrofitClient.apiService.getDriverSeasonStats(driverId)
+            val entity = DriverSeasonStatsEntity(
+                apiData.driver_id,
+                apiData.year,
+                apiData.total_races,
+                apiData.wins,
+                apiData.second_places,
+                apiData.podiums,
+                apiData.laps_led,
+                apiData.fastest_laps,
+                apiData.beat_teammate_race,
+                apiData.beat_teammate_quali,
+                apiData.pole_positions,
+                apiData.front_rows,
+                apiData.retirements,
+                apiData.q3_appearances,
+                apiData.q2_appearances,
+                apiData.q1_appearances,
+                apiData.sprint_starts,
+                apiData.sprint_wins,
+                apiData.sprint_top_3,
+                apiData.sprint_points_finishes,
+                apiData.sprint_points,
+                apiData.beat_teammate_sprint,
+                apiData.sprint_quali_poles,
+                apiData.last_updated
+            )
+            driverSeasonStatsDao.insertStats(entity)
+        } catch (e: Exception) {}
+    }
+
+    fun getConstructorSeasonStats(constructorId: String): Flow<ConstructorSeasonStatsEntity?> = constructorSeasonStatsDao.getStats(constructorId)
+
+    suspend fun refreshConstructorSeasonStats(constructorId: String) {
+        try {
+            val apiData = RetrofitClient.apiService.getConstructorSeasonStats(constructorId)
+            val entity = ConstructorSeasonStatsEntity(
+                apiData.constructor_id,
+                apiData.year,
+                apiData.total_races,
+                apiData.wins,
+                apiData.podiums,
+                apiData.fastest_laps,
+                apiData.pole_positions,
+                apiData.front_rows,
+                apiData.one_two_finishes,
+                apiData.double_dnfs,
+                apiData.last_updated
+            )
+            constructorSeasonStatsDao.insertStats(entity)
         } catch (e: Exception) {}
     }
 }

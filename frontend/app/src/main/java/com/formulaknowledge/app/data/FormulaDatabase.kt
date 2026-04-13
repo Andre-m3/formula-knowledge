@@ -119,6 +119,7 @@ data class DriverStatsEntity(
     
     val sprint_starts: Int,
     val sprint_wins: Int,
+    val sprint_top_3: Int,
     val best_sprint_result: String,
     val best_sprint_grid_position: String,
     
@@ -129,6 +130,72 @@ data class DriverStatsEntity(
     val hat_tricks: Int,
     val grand_slams: Int,
     
+    val last_updated: String
+)
+
+@Entity(tableName = "constructor_career_stats")
+data class ConstructorStatsEntity(
+    @PrimaryKey val constructor_id: String,
+    val total_races: Int,
+    val wins: Int,
+    val podiums: Int,
+    val driver_championships: Int,
+    val constructor_championships: Int,
+    
+    val first_gp_year: String,
+    val first_win: String,
+    val pole_positions: Int,
+    val fastest_laps: Int,
+    val total_points: Float,
+    val seasons_entered: Int,
+    val best_race_result: String,
+    val best_championship_result: String,
+    val power_unit: String,
+    val team_principal: String,
+    val base_location: String,
+    val last_updated: String
+)
+
+@Entity(tableName = "driver_season_stats", primaryKeys = ["driver_id", "year"])
+data class DriverSeasonStatsEntity(
+    val driver_id: String,
+    val year: Int,
+    val total_races: Int,
+    val wins: Int,
+    val second_places: Int,
+    val podiums: Int,
+    val laps_led: Int,
+    val fastest_laps: Int,
+    val beat_teammate_race: Int,
+    val beat_teammate_quali: Int,
+    val pole_positions: Int,
+    val front_rows: Int,
+    val retirements: Int,
+    val q3_appearances: Int,
+    val q2_appearances: Int,
+    val q1_appearances: Int,
+    val sprint_starts: Int,
+    val sprint_wins: Int,
+    val sprint_top_3: Int,
+    val sprint_points_finishes: Int,
+    val sprint_points: Int,
+    val beat_teammate_sprint: Int,
+    val sprint_quali_poles: Int,
+    val last_updated: String
+)
+
+@Entity(tableName = "constructor_season_stats", primaryKeys = ["constructor_id", "year"])
+data class ConstructorSeasonStatsEntity(
+    val constructor_id: String,
+    val year: Int,
+    val total_races: Int,
+    val wins: Int,
+    val podiums: Int,
+    val fastest_laps: Int,
+    val pole_positions: Int,
+    val front_rows: Int,
+    val one_two_finishes: Int,
+    val double_dnfs: Int,
     val last_updated: String
 )
 
@@ -225,11 +292,38 @@ interface DriverStatsDao {
     suspend fun insertStats(stats: DriverStatsEntity)
 }
 
+@Dao
+interface ConstructorStatsDao {
+    @Query("SELECT * FROM constructor_career_stats WHERE constructor_id = :constructorId")
+    fun getStats(constructorId: String): Flow<ConstructorStatsEntity?>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertStats(stats: ConstructorStatsEntity)
+}
+
+@Dao
+interface DriverSeasonStatsDao {
+    @Query("SELECT * FROM driver_season_stats WHERE driver_id = :driverId AND year = 2026")
+    fun getStats(driverId: String): Flow<DriverSeasonStatsEntity?>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertStats(stats: DriverSeasonStatsEntity)
+}
+
+@Dao
+interface ConstructorSeasonStatsDao {
+    @Query("SELECT * FROM constructor_season_stats WHERE constructor_id = :constructorId AND year = 2026")
+    fun getStats(constructorId: String): Flow<ConstructorSeasonStatsEntity?>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertStats(stats: ConstructorSeasonStatsEntity)
+}
+
 // --- 3. DATABASE (Il motore Room) ---
 
 @Database(
-    entities = [DriverStandingEntity::class, ConstructorStandingEntity::class, CircuitDetailEntity::class, RaceResultEntity::class, CalendarEntity::class, RaceWeekEntity::class, DriverStatsEntity::class],
-    version = 13,
+    entities = [DriverStandingEntity::class, ConstructorStandingEntity::class, CircuitDetailEntity::class, RaceResultEntity::class, CalendarEntity::class, RaceWeekEntity::class, DriverStatsEntity::class, ConstructorStatsEntity::class, DriverSeasonStatsEntity::class, ConstructorSeasonStatsEntity::class],
+    version = 16,
     exportSchema = false
 )
 abstract class FormulaDatabase : RoomDatabase() {
@@ -237,6 +331,9 @@ abstract class FormulaDatabase : RoomDatabase() {
     abstract fun raceDao(): RaceDao
     abstract fun generalDao(): GeneralDao
     abstract fun driverStatsDao(): DriverStatsDao
+    abstract fun constructorStatsDao(): ConstructorStatsDao
+    abstract fun driverSeasonStatsDao(): DriverSeasonStatsDao
+    abstract fun constructorSeasonStatsDao(): ConstructorSeasonStatsDao
 
     companion object {
         @Volatile

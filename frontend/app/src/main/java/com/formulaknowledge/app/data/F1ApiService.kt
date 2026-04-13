@@ -30,4 +30,13 @@ interface F1ApiService {
 
     @GET("api/v1/drivers/{driver_id}/stats")
     suspend fun getDriverStats(@Path("driver_id") driverId: String): DriverStatsResponse
+
+    @GET("api/v1/constructors/{constructor_id}/stats")
+    suspend fun getConstructorStats(@Path("constructor_id") constructorId: String): ConstructorStatsResponse
+
+    @GET("api/v1/drivers/{driver_id}/season_stats")
+    suspend fun getDriverSeasonStats(@Path("driver_id") driverId: String): DriverSeasonStatsResponse
+
+    @GET("api/v1/constructors/{constructor_id}/season_stats")
+    suspend fun getConstructorSeasonStats(@Path("constructor_id") constructorId: String): ConstructorSeasonStatsResponse
 }

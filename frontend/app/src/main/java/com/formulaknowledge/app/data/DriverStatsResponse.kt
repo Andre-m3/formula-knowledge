@@ -19,6 +19,7 @@ data class DriverStatsResponse(
 
     val sprint_starts: Int,
     val sprint_wins: Int,
+    val sprint_top_3: Int,
     val best_sprint_result: String,
     val best_sprint_grid_position: String,
 

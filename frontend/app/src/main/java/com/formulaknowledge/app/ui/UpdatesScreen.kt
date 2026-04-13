@@ -48,6 +48,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.math.abs
+import kotlin.math.min
+import kotlin.math.pow
 import com.formulaknowledge.app.data.*
 import kotlinx.coroutines.launch
 
@@ -90,6 +93,7 @@ fun UpdatesScreen() {
     var selectedCountryForSessions by remember { mutableStateOf("") }
     var selectedSessions by remember { mutableStateOf<SessionTimes?>(null) }
     var selectedGpStatusForSessions by remember { mutableStateOf("future") }
+    var selectedDatesForSessions by remember { mutableStateOf<List<String>>(emptyList()) }
     var previousScreenForSessions by remember { mutableStateOf(AppScreen.HOME) }
 
     var showNotReadyDialog by remember { mutableStateOf(false) }
@@ -179,6 +183,7 @@ fun UpdatesScreen() {
                             selectedGpForSessions = raceWeek?.gp_name ?: ""
                             selectedCountryForSessions = raceWeek?.country ?: ""
                             selectedSessions = raceWeek?.sessions
+                            selectedDatesForSessions = raceWeek?.dates ?: emptyList()
                             selectedGpStatusForSessions = raceWeek?.status ?: "future"
                             previousScreenForSessions = AppScreen.HOME
                             currentScreen = it
@@ -215,7 +220,7 @@ fun UpdatesScreen() {
                         }
                     )
                     AppScreen.DRIVER_DETAIL -> DriverDetailScreen(selectedDriverName)
-                    AppScreen.RACE_SESSIONS -> RaceSessionsScreen(selectedSprintForSessions, selectedGpForSessions, selectedCountryForSessions, selectedSessions, selectedGpStatusForSessions)
+                    AppScreen.RACE_SESSIONS -> RaceSessionsScreen(selectedSprintForSessions, selectedGpForSessions, selectedCountryForSessions, selectedSessions, selectedGpStatusForSessions, selectedDatesForSessions)
                     AppScreen.CIRCUIT_DETAIL -> CircuitDetailScreen(
                         round = selectedCircuitRound,
                         onNavigateToResults = { round, name ->
@@ -223,7 +228,8 @@ fun UpdatesScreen() {
                             selectedGpName = name
                             currentScreen = AppScreen.RESULTS
                         },
-                        onNavigateToSessions = { isSprint, name, country, sessions, gpStatus ->
+                    onNavigateToSessions = { isSprint, name, country, sessions, gpStatus, dates ->
+                        selectedDatesForSessions = dates
                             selectedSprintForSessions = isSprint
                             selectedGpForSessions = name
                             selectedCountryForSessions = country
@@ -296,7 +302,7 @@ fun UpdatesScreen() {
 }
 
 @Composable
-fun CircuitDetailScreen(round: Int, onNavigateToResults: (Int, String) -> Unit, onNavigateToSessions: (Boolean, String, String, SessionTimes, String) -> Unit) {
+fun CircuitDetailScreen(round: Int, onNavigateToResults: (Int, String) -> Unit, onNavigateToSessions: (Boolean, String, String, SessionTimes, String, List<String>) -> Unit) {
     val context = LocalContext.current
     val database = remember { FormulaDatabase.getDatabase(context) }
     val repository = remember { FormulaRepository(database) }
@@ -490,7 +496,7 @@ fun CircuitDetailScreen(round: Int, onNavigateToResults: (Int, String) -> Unit, 
                         // Pulsante delle sessioni o dei risultati
                         if (data.status == "future" || data.status == "current") {
                             Button(
-                                onClick = { onNavigateToSessions(data.is_sprint, data.gp_name, data.country, data.sessions, data.status) },
+                                onClick = { onNavigateToSessions(data.is_sprint, data.gp_name, data.country, data.sessions, data.status, data.dates) },
                                 modifier = Modifier.fillMaxWidth().height(56.dp),
                                 shape = RoundedCornerShape(16.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00FFCC).copy(alpha = 0.9f))
@@ -502,20 +508,40 @@ fun CircuitDetailScreen(round: Int, onNavigateToResults: (Int, String) -> Unit, 
                                 }
                             }
                         } else if (data.status == "past") {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Button(
                                 onClick = { onNavigateToResults(data.round, data.gp_name) },
-                                modifier = Modifier.fillMaxWidth().height(56.dp),
+                                modifier = Modifier.weight(1f).height(56.dp),
                                 shape = RoundedCornerShape(16.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF0033).copy(alpha = 0.9f))
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF0033).copy(alpha = 0.9f)),
+                                contentPadding = PaddingValues(0.dp)
                             ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Default.Leaderboard, null, tint = Color.White)
-                                    Spacer(Modifier.width(12.dp))
-                                    Text("VIEW RACE RESULTS", color = Color.White, fontWeight = FontWeight.Black, fontSize = 16.sp)
+                                Row(modifier = Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+                                    Icon(Icons.Default.Leaderboard, null, tint = Color.White, modifier = Modifier.size(18.dp))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("RACE RESULTS", color = Color.White, fontWeight = FontWeight.Black, fontSize = 13.sp)
+                                }
+                            }
+
+                            val highlightIntent = remember {
+                                val query = "F1 2026 ${data.gp_name} Race Highlights".replace(" ", "+")
+                                android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://www.youtube.com/results?search_query=$query"))
+                            }
+                            Button(
+                                onClick = { context.startActivity(highlightIntent) },
+                                modifier = Modifier.weight(1f).height(56.dp),
+                                shape = RoundedCornerShape(16.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.1f)),
+                                contentPadding = PaddingValues(0.dp)
+                            ) {
+                                Row(modifier = Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+                                    Icon(Icons.Default.PlayArrow, null, tint = Color.White, modifier = Modifier.size(20.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("HIGHLIGHTS", color = Color.White, fontWeight = FontWeight.Black, fontSize = 13.sp)
                                 }
                             }
                         }
-                        Spacer(modifier = Modifier.height(12.dp))
+                    }
                     }
                     
                     item { HistoricalDataCard(data) }
@@ -626,8 +652,25 @@ fun DriverDetailScreen(driverName: String) {
         repository.refreshDriverStats(driverId)
     }
 
-    LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp), contentPadding = PaddingValues(bottom = 100.dp)) {
-        item {
+    var selectedTab by remember { mutableStateOf("Career") }
+    var swipeOffset by remember { mutableFloatStateOf(0f) }
+    
+    val dragModifier = Modifier.draggable(
+        orientation = Orientation.Horizontal,
+        state = rememberDraggableState { delta ->
+            swipeOffset += delta
+        },
+        onDragStopped = {
+            if (swipeOffset < -150 && selectedTab == "Career") {
+                selectedTab = "Season"
+            } else if (swipeOffset > 150 && selectedTab == "Season") {
+                selectedTab = "Career"
+            }
+            swipeOffset = 0f
+        }
+    )
+
+    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp).then(dragModifier)) {
             Spacer(modifier = Modifier.height(26.dp))
             
             Box(modifier = Modifier.fillMaxWidth().height(160.dp), contentAlignment = Alignment.BottomStart) {
@@ -701,9 +744,53 @@ fun DriverDetailScreen(driverName: String) {
                 }
             }
             
-            Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // ROW: Pulsante H2H e Slider Tabs
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            // Bottone Head to Head
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = Color(0xFF00FFCC).copy(alpha = 0.1f),
+                border = BorderStroke(1.dp, Color(0xFF00FFCC).copy(alpha = 0.4f)),
+                modifier = Modifier.clickable { /* TODO: Naviga alla schermata H2H */ }
+            ) {
+                Row(modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.CompareArrows, contentDescription = "Head to Head", tint = Color(0xFF00FFCC), modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("HEAD 2 HEAD", color = Color(0xFF00FFCC), fontSize = 11.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic)
+                }
+            }
+
+            // Slider Tabs
+            Row(modifier = Modifier.wrapContentWidth().background(Color.White.copy(alpha = 0.04f), RoundedCornerShape(12.dp)).padding(2.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                TabItemMinimalAnimated("CAREER", selectedTab == "Career") { selectedTab = "Career" }
+                TabItemMinimalAnimated("2026", selectedTab == "Season") { selectedTab = "Season" }
+            }
         }
 
+        Spacer(modifier = Modifier.height(26.dp))
+
+        // Contenuto Scorrevole Animato
+        AnimatedContent(
+            targetState = selectedTab,
+            transitionSpec = {
+                if (targetState == "Season") {
+                    (slideInHorizontally { width -> width } + fadeIn()).togetherWith(slideOutHorizontally { width -> -width } + fadeOut())
+                } else {
+                    (slideInHorizontally { width -> -width } + fadeIn()).togetherWith(slideOutHorizontally { width -> width } + fadeOut())
+                }.using(SizeTransform(clip = false))
+            },
+            label = "StatsTabTransition"
+        ) { targetTab ->
+            LazyColumn(
+                contentPadding = PaddingValues(bottom = 120.dp),
+                modifier = Modifier.fillMaxSize().graphicsLayer {
+                    val progress = min(1f, abs(swipeOffset) / 500f)
+                    alpha = 1f - (progress * 0.5f)
+                    scaleX = 1f - (progress * 0.05f)
+                }
+            ) {
         if (stats == null) {
             item {
                 Box(modifier = Modifier.fillMaxWidth().padding(top = 40.dp), contentAlignment = Alignment.Center) {
@@ -712,6 +799,7 @@ fun DriverDetailScreen(driverName: String) {
             }
         } else {
             item {
+                if (targetTab == "Career") {
                 stats?.let { statData ->
                     // 1. CARDS PRINCIPALI
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -725,7 +813,7 @@ fun DriverDetailScreen(driverName: String) {
                     Spacer(modifier = Modifier.height(24.dp))
                     
                     // 2. PROGRESS BARS ANALITICHE
-                    Text("CARRIERA PILOTA", color = Color(0xFF00FFCC), fontSize = 26.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic, letterSpacing = (-1).sp)
+                    Text("CARRIERA PILOTA", color = Color(0xFF00FFCC), fontSize = 26.sp, fontWeight = FontWeight.Black, letterSpacing = (-1).sp)
                     Spacer(modifier = Modifier.height(16.dp))
 
                     val totalRetirements = statData.dnf_count + statData.dns_count + statData.dsq_count
@@ -766,13 +854,12 @@ fun DriverDetailScreen(driverName: String) {
                     Spacer(modifier = Modifier.height(24.dp))
 
                     // 3. SPRINT STATS
-                    Text("SPRINT FORMAT", color = Color(0xFF00FFCC), fontSize = 26.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic, letterSpacing = (-1).sp)
+                    Text("SPRINT FORMAT", color = Color(0xFF00FFCC), fontSize = 26.sp, fontWeight = FontWeight.Black, letterSpacing = (-1).sp)
                     Spacer(modifier = Modifier.height(16.dp))
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         MiniStatCard(title = "RACES", value = statData.sprint_starts.toString(), modifier = Modifier.weight(1f))
                         MiniStatCard(title = "WINS", value = statData.sprint_wins.toString(), modifier = Modifier.weight(1f))
-                        val bestSprintVal = if (statData.best_sprint_result != "N/A") "P${statData.best_sprint_result}" else "N/A"
-                        MiniStatCard(title = "BEST", value = bestSprintVal, modifier = Modifier.weight(1f))
+                        MiniStatCard(title = "TOP3", value = statData.sprint_top_3.toString(), modifier = Modifier.weight(1f))
                     }
 
                     Spacer(modifier = Modifier.height(12.dp))
@@ -788,7 +875,7 @@ fun DriverDetailScreen(driverName: String) {
                     Spacer(modifier = Modifier.height(24.dp))
 
                     // 4. FOOTER BIO (Dettagli Personali)
-                    Text("DRIVER BIO", color = Color(0xFF00FFCC), fontSize = 26.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic, letterSpacing = (-1).sp)
+                    Text("DRIVER BIO", color = Color(0xFF00FFCC), fontSize = 26.sp, fontWeight = FontWeight.Black, letterSpacing = (-1).sp)
                     Spacer(modifier = Modifier.height(16.dp))
                     
                     val formattedDate = if (statData.date_of_birth != "N/A" && statData.date_of_birth.contains("-")) {
@@ -831,9 +918,28 @@ fun DriverDetailScreen(driverName: String) {
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
+                } else {
+                    // Paginata "2026 SEASON" (Placeholder)
+                    Surface(
+                        modifier = Modifier.fillMaxWidth().height(200.dp).padding(top = 8.dp),
+                        shape = RoundedCornerShape(24.dp),
+                        color = Color.White.copy(alpha = 0.03f),
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f))
+                    ) {
+                        Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(Icons.Default.QueryStats, null, tint = Color(0xFF00FFCC).copy(alpha = 0.5f), modifier = Modifier.size(48.dp))
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text("2026 SEASON STATS", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text("In arrivo nuovi widget grafici...", color = Color.White.copy(alpha = 0.5f), fontSize = 13.sp)
+                        }
+                    }
+                }
+            }
             }
         }
     }
+}
 }
 
 fun getDriverCountryForFlag(driverId: String): String {
@@ -865,6 +971,17 @@ fun MiniStatCard(title: String, value: String, modifier: Modifier = Modifier) {
         color = Color(0xFF1E0A0A).copy(alpha = 0.90f)
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(Color(0xFFFF0033).copy(alpha = 0.25f), Color.Transparent),
+                        center = Offset(size.width, 0f),
+                        radius = size.width * 0.85f
+                    ),
+                    radius = size.width,
+                    center = Offset(size.width, 0f)
+                )
+            }
             Text(
                 text = value, 
                 color = Color.White, 
@@ -898,7 +1015,7 @@ fun RatioProgressBar(title: String, leftVal: Int, rightVal: Int, rightValueAlway
     } else 0f
     
     // Effetto proporzionale visivo logaritmico per esagerare i valori piccoli, con un cap minimo per ospitare due cifre
-    val calculatedVisual = if (actualProgress > 0f) Math.pow(actualProgress.toDouble(), 0.75).toFloat() else 0f
+    val calculatedVisual = if (actualProgress > 0f) actualProgress.toDouble().pow(0.75).toFloat() else 0f
     val visualProgress = if (actualProgress > 0f) maxOf(calculatedVisual, 0.12f) else 0f
     val cappedProgress = if (actualProgress >= 1f) 1f else minOf(visualProgress, 0.88f)
     val percentage = if (max > 0) (actualProgress * 100).toInt() else 0
@@ -1020,7 +1137,7 @@ fun StandingsScreen(
             label = "StandingsListTransition"
         ) { targetTab ->
             LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp), contentPadding = PaddingValues(bottom = 120.dp), modifier = Modifier.graphicsLayer {
-                val progress = Math.min(1f, Math.abs(swipeOffset) / 500f)
+                val progress = min(1f, abs(swipeOffset) / 500f)
                 alpha = 1f - (progress * 0.5f)
                 scaleX = 1f - (progress * 0.05f)
             }) {

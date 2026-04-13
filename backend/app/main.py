@@ -5,6 +5,65 @@ from pydantic import BaseModel
 from typing import Optional, List
 from datetime import date, timedelta, datetime, timezone
 
+class ConstructorStatsResponseSchema(BaseModel):
+    constructor_id: str
+    total_races: int
+    wins: int
+    podiums: int
+    driver_championships: int
+    constructor_championships: int
+    first_gp_year: str
+    first_win: str
+    pole_positions: int
+    fastest_laps: int
+    total_points: float
+    seasons_entered: int
+    best_race_result: str
+    best_championship_result: str
+    power_unit: str
+    team_principal: str
+    base_location: str
+    last_updated: datetime
+
+class DriverSeasonStatsResponseSchema(BaseModel):
+    driver_id: str
+    year: int
+    total_races: int
+    wins: int
+    second_places: int
+    podiums: int
+    laps_led: int
+    fastest_laps: int
+    beat_teammate_race: int
+    beat_teammate_quali: int
+    pole_positions: int
+    front_rows: int
+    retirements: int
+    q3_appearances: int
+    q2_appearances: int
+    q1_appearances: int
+    sprint_starts: int
+    sprint_wins: int
+    sprint_top_3: int
+    sprint_points_finishes: int
+    sprint_points: int
+    beat_teammate_sprint: int
+    sprint_quali_poles: int
+    last_updated: datetime
+
+class ConstructorSeasonStatsResponseSchema(BaseModel):
+    constructor_id: str
+    year: int
+    total_races: int
+    wins: int
+    podiums: int
+    fastest_laps: int
+    pole_positions: int
+    front_rows: int
+    one_two_finishes: int
+    double_dnfs: int
+    last_updated: datetime
+
 from . import database, models
 from .services.fia_scraper import FiaScraperService
 from .services.weather_service import WeatherService
@@ -138,6 +197,7 @@ class DriverStatsResponseSchema(BaseModel):
 
     sprint_starts: int
     sprint_wins: int
+    sprint_top_3: int
     best_sprint_result: str
     best_sprint_grid_position: str
 
@@ -401,4 +461,25 @@ def get_driver_stats(driver_id: str, db: Session = Depends(database.get_db)):
     stats = db.query(models.DriverCareerStats).filter(models.DriverCareerStats.driver_id == driver_id).first()
     if not stats:
         raise HTTPException(status_code=404, detail="Driver stats not found")
+    return stats
+
+@app.get("/api/v1/constructors/{constructor_id}/stats", response_model=ConstructorStatsResponseSchema)
+def get_constructor_stats(constructor_id: str, db: Session = Depends(database.get_db)):
+    stats = db.query(models.ConstructorCareerStats).filter(models.ConstructorCareerStats.constructor_id == constructor_id).first()
+    if not stats:
+        raise HTTPException(status_code=404, detail="Constructor stats not found")
+    return stats
+
+@app.get("/api/v1/drivers/{driver_id}/season_stats", response_model=DriverSeasonStatsResponseSchema)
+def get_driver_season_stats(driver_id: str, db: Session = Depends(database.get_db)):
+    stats = db.query(models.DriverSeasonStats).filter(models.DriverSeasonStats.driver_id == driver_id, models.DriverSeasonStats.year == 2026).first()
+    if not stats:
+        raise HTTPException(status_code=404, detail="Driver season stats not found")
+    return stats
+
+@app.get("/api/v1/constructors/{constructor_id}/season_stats", response_model=ConstructorSeasonStatsResponseSchema)
+def get_constructor_season_stats(constructor_id: str, db: Session = Depends(database.get_db)):
+    stats = db.query(models.ConstructorSeasonStats).filter(models.ConstructorSeasonStats.constructor_id == constructor_id, models.ConstructorSeasonStats.year == 2026).first()
+    if not stats:
+        raise HTTPException(status_code=404, detail="Constructor season stats not found")
     return stats

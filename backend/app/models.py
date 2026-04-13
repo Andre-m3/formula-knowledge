@@ -130,6 +130,7 @@ class DriverCareerStats(Base):
     # Nuove Statistiche (Sprint)
     sprint_starts = Column(Integer, default=0)
     sprint_wins = Column(Integer, default=0)
+    sprint_top_3 = Column(Integer, default=0)
     best_sprint_result = Column(String, default="N/A")
     best_sprint_grid_position = Column(String, default="N/A")
 
@@ -141,4 +142,80 @@ class DriverCareerStats(Base):
     hat_tricks = Column(Integer, default=0)
     grand_slams = Column(Integer, default=0)
 
+    last_updated = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+class ConstructorCareerStats(Base):
+    __tablename__ = "constructor_career_stats"
+
+    constructor_id = Column(String, primary_key=True, index=True) # es. "ferrari", "mercedes"
+    total_races = Column(Integer, default=0)
+    wins = Column(Integer, default=0)
+    podiums = Column(Integer, default=0)
+    driver_championships = Column(Integer, default=0)
+    constructor_championships = Column(Integer, default=0)
+    
+    first_gp_year = Column(String, default="N/A")
+    first_win = Column(String, default="N/A")
+    
+    pole_positions = Column(Integer, default=0)
+    fastest_laps = Column(Integer, default=0)
+    total_points = Column(Float, default=0.0)
+    seasons_entered = Column(Integer, default=0)
+    
+    best_race_result = Column(String, default="N/A")
+    best_championship_result = Column(String, default="N/A")
+    
+    # Dati BIO Scuderia
+    power_unit = Column(String, default="N/A")
+    team_principal = Column(String, default="N/A")
+    base_location = Column(String, default="N/A")
+
+    last_updated = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+class DriverSeasonStats(Base):
+    __tablename__ = "driver_season_stats"
+    
+    driver_id = Column(String, primary_key=True, index=True)
+    year = Column(Integer, primary_key=True, default=2026)
+    
+    total_races = Column(Integer, default=0)
+    wins = Column(Integer, default=0)
+    second_places = Column(Integer, default=0)
+    podiums = Column(Integer, default=0)
+    laps_led = Column(Integer, default=0)
+    fastest_laps = Column(Integer, default=0)
+    beat_teammate_race = Column(Integer, default=0)
+    beat_teammate_quali = Column(Integer, default=0)
+    pole_positions = Column(Integer, default=0)
+    front_rows = Column(Integer, default=0)
+    retirements = Column(Integer, default=0)
+    q3_appearances = Column(Integer, default=0)
+    q2_appearances = Column(Integer, default=0)
+    q1_appearances = Column(Integer, default=0)
+    
+    sprint_starts = Column(Integer, default=0)
+    sprint_wins = Column(Integer, default=0)
+    sprint_top_3 = Column(Integer, default=0)
+    sprint_points_finishes = Column(Integer, default=0)
+    sprint_points = Column(Integer, default=0)
+    beat_teammate_sprint = Column(Integer, default=0)
+    sprint_quali_poles = Column(Integer, default=0)
+    
+    last_updated = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+class ConstructorSeasonStats(Base):
+    __tablename__ = "constructor_season_stats"
+    
+    constructor_id = Column(String, primary_key=True, index=True)
+    year = Column(Integer, primary_key=True, default=2026)
+    
+    total_races = Column(Integer, default=0)
+    wins = Column(Integer, default=0)
+    podiums = Column(Integer, default=0)
+    fastest_laps = Column(Integer, default=0)
+    pole_positions = Column(Integer, default=0)
+    front_rows = Column(Integer, default=0)
+    one_two_finishes = Column(Integer, default=0)
+    double_dnfs = Column(Integer, default=0)
+    
     last_updated = Column(DateTime, default=lambda: datetime.now(timezone.utc))

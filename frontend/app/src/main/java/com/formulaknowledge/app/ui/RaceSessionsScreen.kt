@@ -40,10 +40,12 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import com.formulaknowledge.app.data.SessionTimes
 import com.formulaknowledge.app.utils.TimeUtils
+import java.text.SimpleDateFormat
+import java.util.Locale
 
 enum class SessionStatus { FUTURE, ONGOING, CONCLUDED }
 
-data class SessionInfo(val name: String, val day: String, val time: String, val isMajor: Boolean = false, val status: SessionStatus = SessionStatus.FUTURE)
+data class SessionInfo(val name: String, val day: String, val time: String, val dateStr: String, val isMajor: Boolean = false, val status: SessionStatus = SessionStatus.FUTURE)
 
 fun getSessionStatus(sessionDay: String, sessionTimeLocal: String, gpStatus: String): SessionStatus {
     if (gpStatus == "past") return SessionStatus.CONCLUDED
@@ -71,7 +73,7 @@ fun getSessionStatus(sessionDay: String, sessionTimeLocal: String, gpStatus: Str
 }
 
 @Composable
-fun RaceSessionsScreen(isSprint: Boolean, gpName: String, country: String, sessions: SessionTimes?, gpStatus: String) {
+fun RaceSessionsScreen(isSprint: Boolean, gpName: String, country: String, sessions: SessionTimes?, gpStatus: String, dates: List<String>) {
     val context = LocalContext.current
     var showOngoingDialog by remember { mutableStateOf(false) }
     var showConcludedDialog by remember { mutableStateOf(false) }
@@ -79,19 +81,23 @@ fun RaceSessionsScreen(isSprint: Boolean, gpName: String, country: String, sessi
     val sessionsList = remember(isSprint, sessions) {
         val list = mutableListOf<SessionInfo>()
         if (sessions == null) return@remember emptyList<SessionInfo>()
+        
+        val friDate = dates.getOrNull(0) ?: ""
+        val satDate = dates.getOrNull(1) ?: ""
+        val sunDate = dates.getOrNull(2) ?: ""
 
         if (isSprint) {
-            sessions.fp1?.let { val t = TimeUtils.formatUtcToLocalTime(it); list.add(SessionInfo("FREE PRACTICE 1", "FRIDAY", t, false, getSessionStatus("FRIDAY", t, gpStatus))) }
-            sessions.sprint_shootout?.let { val t = TimeUtils.formatUtcToLocalTime(it); list.add(SessionInfo("SPRINT QUALI", "FRIDAY", t, false, getSessionStatus("FRIDAY", t, gpStatus))) }
-            sessions.sprint_race?.let { val t = TimeUtils.formatUtcToLocalTime(it); list.add(SessionInfo("SPRINT RACE", "SATURDAY", t, true, getSessionStatus("SATURDAY", t, gpStatus))) }
-            sessions.quali?.let { val t = TimeUtils.formatUtcToLocalTime(it); list.add(SessionInfo("QUALIFYING", "SATURDAY", t, true, getSessionStatus("SATURDAY", t, gpStatus))) }
-            sessions.race?.let { val t = TimeUtils.formatUtcToLocalTime(it); list.add(SessionInfo("GRAND PRIX", "SUNDAY", t, true, getSessionStatus("SUNDAY", t, gpStatus))) }
+            sessions.fp1?.let { val t = TimeUtils.formatUtcToLocalTime(it); list.add(SessionInfo("FREE PRACTICE 1", "FRIDAY", t, friDate, false, getSessionStatus("FRIDAY", t, gpStatus))) }
+            sessions.sprint_shootout?.let { val t = TimeUtils.formatUtcToLocalTime(it); list.add(SessionInfo("SPRINT QUALI", "FRIDAY", t, friDate, false, getSessionStatus("FRIDAY", t, gpStatus))) }
+            sessions.sprint_race?.let { val t = TimeUtils.formatUtcToLocalTime(it); list.add(SessionInfo("SPRINT RACE", "SATURDAY", t, satDate, true, getSessionStatus("SATURDAY", t, gpStatus))) }
+            sessions.quali?.let { val t = TimeUtils.formatUtcToLocalTime(it); list.add(SessionInfo("QUALIFYING", "SATURDAY", t, satDate, true, getSessionStatus("SATURDAY", t, gpStatus))) }
+            sessions.race?.let { val t = TimeUtils.formatUtcToLocalTime(it); list.add(SessionInfo("GRAND PRIX", "SUNDAY", t, sunDate, true, getSessionStatus("SUNDAY", t, gpStatus))) }
         } else {
-            sessions.fp1?.let { val t = TimeUtils.formatUtcToLocalTime(it); list.add(SessionInfo("FREE PRACTICE 1", "FRIDAY", t, false, getSessionStatus("FRIDAY", t, gpStatus))) }
-            sessions.fp2?.let { val t = TimeUtils.formatUtcToLocalTime(it); list.add(SessionInfo("FREE PRACTICE 2", "FRIDAY", t, false, getSessionStatus("FRIDAY", t, gpStatus))) }
-            sessions.fp3?.let { val t = TimeUtils.formatUtcToLocalTime(it); list.add(SessionInfo("FREE PRACTICE 3", "SATURDAY", t, false, getSessionStatus("SATURDAY", t, gpStatus))) }
-            sessions.quali?.let { val t = TimeUtils.formatUtcToLocalTime(it); list.add(SessionInfo("QUALIFYING", "SATURDAY", t, true, getSessionStatus("SATURDAY", t, gpStatus))) }
-            sessions.race?.let { val t = TimeUtils.formatUtcToLocalTime(it); list.add(SessionInfo("GRAND PRIX", "SUNDAY", t, true, getSessionStatus("SUNDAY", t, gpStatus))) }
+            sessions.fp1?.let { val t = TimeUtils.formatUtcToLocalTime(it); list.add(SessionInfo("FREE PRACTICE 1", "FRIDAY", t, friDate, false, getSessionStatus("FRIDAY", t, gpStatus))) }
+            sessions.fp2?.let { val t = TimeUtils.formatUtcToLocalTime(it); list.add(SessionInfo("FREE PRACTICE 2", "FRIDAY", t, friDate, false, getSessionStatus("FRIDAY", t, gpStatus))) }
+            sessions.fp3?.let { val t = TimeUtils.formatUtcToLocalTime(it); list.add(SessionInfo("FREE PRACTICE 3", "SATURDAY", t, satDate, false, getSessionStatus("SATURDAY", t, gpStatus))) }
+            sessions.quali?.let { val t = TimeUtils.formatUtcToLocalTime(it); list.add(SessionInfo("QUALIFYING", "SATURDAY", t, satDate, true, getSessionStatus("SATURDAY", t, gpStatus))) }
+            sessions.race?.let { val t = TimeUtils.formatUtcToLocalTime(it); list.add(SessionInfo("GRAND PRIX", "SUNDAY", t, sunDate, true, getSessionStatus("SUNDAY", t, gpStatus))) }
         }
         list
     }

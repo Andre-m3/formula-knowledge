@@ -7,17 +7,17 @@ from datetime import date
 
 # Dati per il seeding (Stagione 2026 - Proiezione)
 TEAMS_DATA = [
-    {"name": "Mercedes-AMG PETRONAS F1 Team", "color_hex": "#00D2BE", "power_unit": "Mercedes", "chassis_name": "W17"},
-    {"name": "Oracle Red Bull Racing", "color_hex": "#1E41FF", "power_unit": "RedBull-Ford Powertrains", "chassis_name": "RB22"},
-    {"name": "Scuderia Ferrari HP", "color_hex": "#E32219", "power_unit": "Ferrari", "chassis_name": "SF-26"},
+    {"name": "Mercedes-AMG PETRONAS F1 Team", "color_hex": "#27F4D2", "power_unit": "Mercedes", "chassis_name": "W17"},
+    {"name": "Oracle Red Bull Racing", "color_hex": "#3671C6", "power_unit": "RedBull-Ford Powertrains", "chassis_name": "RB22"},
+    {"name": "Scuderia Ferrari HP", "color_hex": "#E8002D", "power_unit": "Ferrari", "chassis_name": "SF-26"},
     {"name": "McLaren Mastercard F1 Team", "color_hex": "#FF8000", "power_unit": "Mercedes", "chassis_name": "MCL40"},
-    {"name": "Aston Martin Aramco F1 Team", "color_hex": "#006F62", "power_unit": "Honda", "chassis_name": "AMR26"},
-    {"name": "BWT Alpine F1 Team", "color_hex": "#0090FF", "power_unit": "Mercedes", "chassis_name": "A526"},
-    {"name": "Atlassian Williams F1 Team", "color_hex": "#005AFF", "power_unit": "Mercedes", "chassis_name": "FW48"},
-    {"name": "Visa Cash App Racing Bulls", "color_hex": "#00359F", "power_unit": "RedBull-Ford Powertrains", "chassis_name": "VCARB 03"},
-    {"name": "Audi Revolut F1 Team", "color_hex": "#A9A9A9", "power_unit": "Audi", "chassis_name": "R26"},
-    {"name": "TGR Haas F1 Team", "color_hex": "#B6B6B6", "power_unit": "Ferrari", "chassis_name": "VF-26"},
-    {"name": "Cadillac F1 Team", "color_hex": "#00008B", "power_unit": "Ferrari", "chassis_name": "MAC-26"},
+    {"name": "Aston Martin Aramco F1 Team", "color_hex": "#229971", "power_unit": "Honda", "chassis_name": "AMR26"},
+    {"name": "BWT Alpine F1 Team", "color_hex": "#00A1E8", "power_unit": "Mercedes", "chassis_name": "A526"},
+    {"name": "Atlassian Williams F1 Team", "color_hex": "#1868DB", "power_unit": "Mercedes", "chassis_name": "FW48"},
+    {"name": "Visa Cash App Racing Bulls", "color_hex": "#6692FF", "power_unit": "RedBull-Ford Powertrains", "chassis_name": "VCARB 03"},
+    {"name": "Audi Revolut F1 Team", "color_hex": "#FF2D00", "power_unit": "Audi", "chassis_name": "R26"},
+    {"name": "TGR Haas F1 Team", "color_hex": "#DEE1E2", "power_unit": "Ferrari", "chassis_name": "VF-26"},
+    {"name": "Cadillac F1 Team", "color_hex": "#AAAAAD", "power_unit": "Ferrari", "chassis_name": "MAC-26"},
 ]
 
 DRIVERS_DATA = [
