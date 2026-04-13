@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- Permettiamo il traffico HTTP in chiaro SOLO verso i server di test locali -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">10.0.2.2</domain> <!-- Emulatore -->
+        <domain includeSubdomains="true">192.168.1.6</domain> <!-- IP Fisico -->
+        <domain includeSubdomains="true">localhost</domain>
+    </domain-config>
+</network-security-config>
