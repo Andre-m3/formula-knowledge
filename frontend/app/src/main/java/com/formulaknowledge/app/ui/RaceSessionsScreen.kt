@@ -191,7 +191,41 @@ fun RaceSessionsScreen(isSprint: Boolean, gpName: String, country: String, sessi
                                 val intent = Intent(Intent.ACTION_INSERT).apply {
                                     data = CalendarContract.Events.CONTENT_URI
                                     putExtra(CalendarContract.Events.TITLE, "$gpName - ${session.name}")
-                                    // putExtra(CalendarContract.Events.EVENT_LOCATION, country)
+                                    putExtra(CalendarContract.Events.EVENT_LOCATION, country)
+                                    
+                                    if (session.time != "TBD" && session.dateStr.isNotBlank()) {
+                                        try {
+                                            val currentYear = 2026 // L'app gestisce la stagione 2026
+                                            val dateTimeStr = "${session.dateStr.trim()} $currentYear ${session.time.trim()}"
+                                            
+                                            // Puliamo la stringa da eventuali punti generati da alcune localizzazioni (es. "giu.")
+                                            val cleanDateTimeStr = dateTimeStr.replace(".", "")
+                                            
+                                            // Supporto per il locale standard e per quello inglese forzato
+                                            val formatters = listOf(
+                                                java.time.format.DateTimeFormatter.ofPattern("dd MMM yyyy HH:mm", java.util.Locale.getDefault()),
+                                                java.time.format.DateTimeFormatter.ofPattern("d MMM yyyy HH:mm", java.util.Locale.getDefault()),
+                                                java.time.format.DateTimeFormatter.ofPattern("dd MMM yyyy HH:mm", java.util.Locale.ENGLISH),
+                                                java.time.format.DateTimeFormatter.ofPattern("d MMM yyyy HH:mm", java.util.Locale.ENGLISH),
+                                                java.time.format.DateTimeFormatter.ofPattern("dd MMM yyyy HH:mm", java.util.Locale.ITALIAN),
+                                                java.time.format.DateTimeFormatter.ofPattern("d MMM yyyy HH:mm", java.util.Locale.ITALIAN)
+                                            )
+                                            
+                                            var parsedTime: java.time.LocalDateTime? = null
+                                            for (formatter in formatters) {
+                                                try { parsedTime = java.time.LocalDateTime.parse(cleanDateTimeStr, formatter); break } catch (e: Exception) { }
+                                            }
+                                            
+                                            if (parsedTime != null) {
+                                                val beginTimeMillis = parsedTime.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+                                                putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, beginTimeMillis)
+                                                // Impostiamo di base 2 ore se è una gara, 1 ora per le altre sessioni
+                                                val durationHours = if (session.name.contains("RACE") || session.name.contains("GRAND PRIX")) 2 else 1
+                                                putExtra(CalendarContract.EXTRA_EVENT_END_TIME, beginTimeMillis + durationHours * 60 * 60 * 1000)
+                                                putExtra(CalendarContract.Events.EVENT_TIMEZONE, java.util.TimeZone.getDefault().id)
+                                            }
+                                        } catch (e: Exception) { /* Silently fail and open empty calendar */ }
+                                    }
                                 }
                                 context.startActivity(intent)
                             }

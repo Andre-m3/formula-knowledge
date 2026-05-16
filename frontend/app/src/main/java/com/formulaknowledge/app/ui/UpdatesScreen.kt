@@ -1558,7 +1558,10 @@ fun RatioProgressBar(title: String, leftVal: Int, rightVal: Int, rightValueAlway
     val calculatedVisual = if (actualProgress > 0f) actualProgress.toDouble().pow(0.75).toFloat() else 0f
     val visualProgress = if (actualProgress > 0f) maxOf(calculatedVisual, 0.12f) else 0f
     val cappedProgress = if (actualProgress >= 1f) 1f else minOf(visualProgress, 0.88f)
-    val percentage = if (max > 0) (actualProgress * 100).toInt() else 0
+    val percentage = if (max > 0) {
+        val pct = (actualProgress * 100).toInt()
+        if (pct == 0 && actualProgress > 0f) 1 else pct
+    } else 0
 
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Bottom) {
@@ -1588,7 +1591,8 @@ fun RatioProgressBar(title: String, leftVal: Int, rightVal: Int, rightValueAlway
                 }
             }
                 
-            if (rightVal > 0 && rightVal != leftVal && !reverseLogic) {
+            // Mostriamo il limitatore destro solo se è strettamente maggiore del valore attuale per evitare sovrapposizioni (es. 6 podi su 5 gare)
+            if (rightVal > 0 && leftVal < rightVal && !reverseLogic) {
                 Text(rightVal.toString(), color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic, modifier = Modifier.align(Alignment.CenterEnd).padding(end = 8.dp).offset(y = (-1).dp))
             }
         }

@@ -28,6 +28,7 @@ import com.formulaknowledge.app.data.FormulaDatabase
 import com.formulaknowledge.app.data.FormulaRepository
 import kotlinx.coroutines.flow.flowOf
 import com.formulaknowledge.app.utils.F1Utils
+import kotlin.math.pow
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -225,10 +226,10 @@ fun HeadToHeadScreen(
         // --- 4. ROWS DI CONFRONTO ---
         Box(modifier = Modifier.weight(1f).padding(horizontal = 20.dp)) {
             if (currentDriver2Id == null) {
-                Text("Seleziona uno sfidante per visualizzare il confronto.", color = Color.White.copy(alpha = 0.4f), modifier = Modifier.align(Alignment.Center))
+                Text("Seleziona un pilota per visualizzare il confronto.", color = Color.White.copy(alpha = 0.4f), modifier = Modifier.align(Alignment.Center))
             } else {
                 LazyColumn(contentPadding = PaddingValues(vertical = 16.dp)) {
-                    if (selectedTab == 0 && d1Career != null && d2Career != null) {
+                    if (selectedTab == 1 && d1Career != null && d2Career != null) {
                         item { StatComparisonRow("GARE DISPUTATE", d1Career!!.total_races.toString(), d2Career!!.total_races.toString(), true, color1, color2) }
                         item { StatComparisonRow("VITTORIE", d1Career!!.wins.toString(), d2Career!!.wins.toString(), true, color1, color2) }
                         item { StatComparisonRow("PODI", d1Career!!.podiums.toString(), d2Career!!.podiums.toString(), true, color1, color2) }
@@ -237,7 +238,7 @@ fun HeadToHeadScreen(
                         item { StatComparisonRow("HAT TRICKS", d1Career!!.hat_tricks.toString(), d2Career!!.hat_tricks.toString(), true, color1, color2) }
                         item { StatComparisonRow("MIGLIOR GARA", d1Career!!.best_race_result, d2Career!!.best_race_result, false, color1, color2) }
                         item { StatComparisonRow("RITIRI", d1Career!!.dnf_count.toString(), d2Career!!.dnf_count.toString(), false, color1, color2) }
-                    } else if (selectedTab == 1 && d1Season != null && d2Season != null) {
+                    } else if (selectedTab == 0 && d1Season != null && d2Season != null) {
                         item { StatComparisonRow("PUNTI", driver1Standing?.points?.toString() ?: "0", driver2Standing?.points?.toString() ?: "0", true, color1, color2) }
                         item { StatComparisonRow("VITTORIE", d1Season!!.wins.toString(), d2Season!!.wins.toString(), true, color1, color2) }
                         item { StatComparisonRow("PODI", d1Season!!.podiums.toString(), d2Season!!.podiums.toString(), true, color1, color2) }
@@ -259,7 +260,7 @@ fun HeadToHeadScreen(
             containerColor = Color(0xFF1E1E1E)
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
-                Text(if (selectingDriver == 1) "Seleziona Pilota 1" else "Seleziona Sfidante", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 16.dp))
+                Text(if (selectingDriver == 1) "Seleziona Pilota 1" else "Seleziona Pilota 2", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 16.dp))
                 LazyColumn {
                     val otherDriverId = if (selectingDriver == 1) currentDriver2Id else currentDriver1Id
                     items(standings.filter { F1Utils.getDriverIdFromName(it.driver_name) != otherDriverId }) { standing ->
@@ -395,7 +396,7 @@ fun HeadToHeadConstructorScreen(
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Text(constructor1Standing?.chassis_name?.uppercase() ?: "", color = color1, fontSize = 18.sp, fontWeight = FontWeight.Bold, fontStyle = FontStyle.Italic, modifier = Modifier.offset(y = 8.dp))
-                        Text(name1, color = Color.White, fontSize = 38.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic, textAlign = TextAlign.Center)
+                        Text(name1, color = Color.White, fontSize = 46.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic)
                     }
 
                     // Scuderia 2 (Bottom Right)
@@ -414,7 +415,7 @@ fun HeadToHeadConstructorScreen(
                                 Icon(Icons.Default.Add, contentDescription = "Add", tint = Color.White, modifier = Modifier.padding(12.dp))
                             }
                         } else {
-                            Text(name2, color = Color.White, fontSize = 38.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic, textAlign = TextAlign.Center)
+                            Text(name2, color = Color.White, fontSize = 46.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic)
                             Text(constructor2Standing?.chassis_name?.uppercase() ?: "", color = color2, fontSize = 18.sp, fontWeight = FontWeight.Bold, fontStyle = FontStyle.Italic, modifier = Modifier.offset(y = (-8).dp))
                         }
                     }
@@ -476,7 +477,7 @@ fun HeadToHeadConstructorScreen(
         // --- 4. ROWS DI CONFRONTO ---
         Box(modifier = Modifier.weight(1f).padding(horizontal = 20.dp)) {
             if (currentConstructor2Id == null) {
-                Text("Seleziona uno sfidante per visualizzare il confronto.", color = Color.White.copy(alpha = 0.4f), modifier = Modifier.align(Alignment.Center))
+                Text("Seleziona una scuderia per visualizzare il confronto.", color = Color.White.copy(alpha = 0.4f), modifier = Modifier.align(Alignment.Center))
             } else {
                 LazyColumn(contentPadding = PaddingValues(vertical = 16.dp)) {
                     if (selectedTab == 1 && c1Career != null && c2Career != null) {
@@ -510,7 +511,7 @@ fun HeadToHeadConstructorScreen(
             containerColor = Color(0xFF1E1E1E)
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
-                Text(if (selectingConstructor == 1) "Seleziona Scuderia 1" else "Seleziona Scuderia Sfidante", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 16.dp))
+                Text(if (selectingConstructor == 1) "Seleziona Scuderia 1" else "Seleziona Scuderia 2", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 16.dp))
                 LazyColumn {
                     val otherConstructorId = if (selectingConstructor == 1) currentConstructor2Id else currentConstructor1Id
                     items(standings.filter { getConstructorIdForStats(it.constructor_name) != otherConstructorId }) { standing ->
@@ -555,12 +556,61 @@ fun StatComparisonRow(label: String, val1: String, val2: String, isHigherBetter:
         } else if (v2 > v1) {
             c1 = if (isHigherBetter) Color.Gray else color1
             c2 = if (isHigherBetter) color2 else Color.Gray
+        } else {
+            // Pareggio: coloriamo entrambi i numeri col colore della loro scuderia!
+            c1 = color1
+            c2 = color2
         }
     }
 
-    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-        Text(text = val1, color = c1, fontSize = 22.sp, fontWeight = FontWeight.Black, modifier = Modifier.weight(1f), textAlign = TextAlign.Start)
-        Text(text = label, color = Color.White.copy(alpha = 0.5f), fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1.5f), textAlign = TextAlign.Center)
-        Text(text = val2, color = c2, fontSize = 22.sp, fontWeight = FontWeight.Black, modifier = Modifier.weight(1f), textAlign = TextAlign.End)
+    // Padding asimmetrico: molto spazio sopra per distaccarsi dalla riga precedente, pochissimo sotto per restare incollati alla propria barra
+    Column(modifier = Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 2.dp)) {
+        Text(
+            text = label, 
+            color = Color.White.copy(alpha = 0.5f), 
+            fontSize = 14.sp, 
+            fontWeight = FontWeight.ExtraBold, 
+            modifier = Modifier.fillMaxWidth(), 
+            textAlign = TextAlign.Center
+        )
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Text(text = val1, color = c1, fontSize = 22.sp, fontWeight = FontWeight.Black, modifier = Modifier.widthIn(min = 40.dp), textAlign = TextAlign.Start)
+            
+            if (v1 != null && v2 != null) {
+                val realW1: Float
+                val realW2: Float
+                if (isHigherBetter) {
+                    val maxVal = maxOf(v1, v2)
+                    realW1 = if (maxVal > 0) v1 / maxVal else 0f
+                    realW2 = if (maxVal > 0) v2 / maxVal else 0f
+                } else {
+                    // Logica Inversa: se il numero minore è meglio (es. posizione in gara), la barra più lunga va al migliore.
+                    if (v1 == 0f && v2 == 0f) { realW1 = 0f; realW2 = 0f }
+                    else if (v1 == 0f) { realW1 = 0f; realW2 = 1f }
+                    else if (v2 == 0f) { realW1 = 1f; realW2 = 0f }
+                    else { realW1 = if (v1 <= v2) 1f else v2 / v1; realW2 = if (v2 <= v1) 1f else v1 / v2 }
+                }
+                
+                // Applicazione logica visuale: pallino minimo del 6% per lo "0" e boost proporzionale per valori piccoli
+                val w1 = if (realW1 > 0f) maxOf(realW1.toDouble().pow(0.65).toFloat(), 0.12f) else 0.06f
+                val w2 = if (realW2 > 0f) maxOf(realW2.toDouble().pow(0.65).toFloat(), 0.12f) else 0.06f
+
+                Row(modifier = Modifier.weight(1f).padding(horizontal = 16.dp).height(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    // Barra divergente a SINISTRA
+                    Box(modifier = Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.CenterEnd) {
+                        Box(modifier = Modifier.fillMaxWidth(w1).fillMaxHeight().background(color1, CircleShape))
+                    }
+                    Spacer(modifier = Modifier.width(4.dp))
+                    // Barra divergente a DESTRA
+                    Box(modifier = Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.CenterStart) {
+                        Box(modifier = Modifier.fillMaxWidth(w2).fillMaxHeight().background(color2, CircleShape))
+                    }
+                }
+            } else {
+                Spacer(modifier = Modifier.weight(1f))
+            }
+            
+            Text(text = val2, color = c2, fontSize = 22.sp, fontWeight = FontWeight.Black, modifier = Modifier.widthIn(min = 40.dp), textAlign = TextAlign.End)
+        }
     }
 }
