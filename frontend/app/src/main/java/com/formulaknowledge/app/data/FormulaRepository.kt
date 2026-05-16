@@ -4,6 +4,7 @@ import kotlinx.coroutines.flow.Flow
 import com.google.gson.Gson
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.firstOrNull
+import com.formulaknowledge.app.utils.F1Utils
 import kotlinx.coroutines.launch
 
 class FormulaRepository(private val database: FormulaDatabase) {
@@ -43,18 +44,7 @@ class FormulaRepository(private val database: FormulaDatabase) {
             coroutineScope {
                 apiDrivers.forEach { driver ->
                     launch {
-                        val lastName = driver.driver_name.split(" ").lastOrNull()?.uppercase() ?: ""
-                        val lowerLast = lastName.lowercase()
-                            .replace("ü", "u")
-                            .replace("é", "e")
-                            .replace(" jr.", "")
-                        
-                        val driverId = when {
-                            lowerLast.contains("sainz") -> "sainz"
-                            lowerLast == "verstappen" -> "max_verstappen"
-                            lowerLast == "lindblad" || lowerLast == "limblad" -> "arvid_lindblad"
-                            else -> lowerLast
-                        }
+                        val driverId = F1Utils.getDriverIdFromName(driver.driver_name)
 
                         val existingStats = driverStatsDao.getStats(driverId).firstOrNull()
                         if (existingStats == null) {
@@ -257,6 +247,8 @@ class FormulaRepository(private val database: FormulaDatabase) {
                 apiData.q3_appearances,
                 apiData.q2_appearances,
                 apiData.q1_appearances,
+                apiData.dsqs,
+                apiData.best_race_result,
                 apiData.sprint_starts,
                 apiData.sprint_wins,
                 apiData.sprint_top_3,
@@ -286,6 +278,15 @@ class FormulaRepository(private val database: FormulaDatabase) {
                 apiData.front_rows,
                 apiData.one_two_finishes,
                 apiData.double_dnfs,
+                apiData.retirements,
+                apiData.dsqs,
+                apiData.races_in_points,
+                apiData.double_q3,
+                apiData.double_q2,
+                apiData.double_q1,
+                apiData.sprint_wins,
+                apiData.sprint_podiums,
+                apiData.sprint_points,
                 apiData.last_updated
             )
             constructorSeasonStatsDao.insertStats(entity)

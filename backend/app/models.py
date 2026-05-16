@@ -192,6 +192,8 @@ class DriverSeasonStats(Base):
     q3_appearances = Column(Integer, default=0)
     q2_appearances = Column(Integer, default=0)
     q1_appearances = Column(Integer, default=0)
+    dsqs = Column(Integer, default=0)
+    best_race_result = Column(String, default="N/A")
     
     sprint_starts = Column(Integer, default=0)
     sprint_wins = Column(Integer, default=0)
@@ -217,5 +219,15 @@ class ConstructorSeasonStats(Base):
     front_rows = Column(Integer, default=0)
     one_two_finishes = Column(Integer, default=0)
     double_dnfs = Column(Integer, default=0)
+    
+    retirements = Column(Integer, default=0)
+    dsqs = Column(Integer, default=0)
+    races_in_points = Column(Integer, default=0)
+    double_q3 = Column(Integer, default=0)
+    double_q2 = Column(Integer, default=0)
+    double_q1 = Column(Integer, default=0)
+    sprint_wins = Column(Integer, default=0)
+    sprint_podiums = Column(Integer, default=0)
+    sprint_points = Column(Integer, default=0)
     
     last_updated = Column(DateTime, default=lambda: datetime.now(timezone.utc))

@@ -174,6 +174,8 @@ data class DriverSeasonStatsEntity(
     val q3_appearances: Int,
     val q2_appearances: Int,
     val q1_appearances: Int,
+    val dsqs: Int,
+    val best_race_result: String,
     val sprint_starts: Int,
     val sprint_wins: Int,
     val sprint_top_3: Int,
@@ -196,6 +198,15 @@ data class ConstructorSeasonStatsEntity(
     val front_rows: Int,
     val one_two_finishes: Int,
     val double_dnfs: Int,
+    val retirements: Int,
+    val dsqs: Int,
+    val races_in_points: Int,
+    val double_q3: Int,
+    val double_q2: Int,
+    val double_q1: Int,
+    val sprint_wins: Int,
+    val sprint_podiums: Int,
+    val sprint_points: Int,
     val last_updated: String
 )
 
@@ -323,7 +334,7 @@ interface ConstructorSeasonStatsDao {
 
 @Database(
     entities = [DriverStandingEntity::class, ConstructorStandingEntity::class, CircuitDetailEntity::class, RaceResultEntity::class, CalendarEntity::class, RaceWeekEntity::class, DriverStatsEntity::class, ConstructorStatsEntity::class, DriverSeasonStatsEntity::class, ConstructorSeasonStatsEntity::class],
-    version = 16,
+    version = 18,
     exportSchema = false
 )
 abstract class FormulaDatabase : RoomDatabase() {

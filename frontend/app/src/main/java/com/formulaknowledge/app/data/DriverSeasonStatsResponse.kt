@@ -17,6 +17,8 @@ data class DriverSeasonStatsResponse(
     val q3_appearances: Int,
     val q2_appearances: Int,
     val q1_appearances: Int,
+    val dsqs: Int,
+    val best_race_result: String,
     val sprint_starts: Int,
     val sprint_wins: Int,
     val sprint_top_3: Int,

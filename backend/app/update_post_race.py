@@ -73,17 +73,23 @@ def update_round(round_number: int):
 
         # H2H Setup
         if c_id not in team_race_h2h: team_race_h2h[c_id] = []
-        team_race_h2h[c_id].append({"id": d_id, "pos": pos if not is_retirement else 999})
+        team_race_h2h[c_id].append({"id": d_id, "pos": pos if not is_retirement else 999, "points": points})
 
         if c_id not in team_dnfs: team_dnfs[c_id] = 0
         if is_retirement: team_dnfs[c_id] += 1
 
         # Update Driver Stats
         d_season = db.query(DriverSeasonStats).filter_by(driver_id=d_id, year=YEAR).first()
-        if not d_season: d_season = DriverSeasonStats(driver_id=d_id, year=YEAR); db.add(d_season)
+        if not d_season:
+            d_season = DriverSeasonStats(driver_id=d_id, year=YEAR)
+            db.add(d_season)
+            db.flush()
         
         d_career = db.query(DriverCareerStats).filter_by(driver_id=d_id).first()
-        if not d_career: d_career = DriverCareerStats(driver_id=d_id); db.add(d_career)
+        if not d_career:
+            d_career = DriverCareerStats(driver_id=d_id)
+            db.add(d_career)
+            db.flush()
 
         d_season.total_races += 1
         d_career.total_races += 1
@@ -109,6 +115,10 @@ def update_round(round_number: int):
             if is_dnf: d_career.dnf_count += 1
             if is_dns: d_career.dns_count += 1
             if is_dsq: d_career.dsq_count += 1
+            if is_dsq: d_season.dsqs += 1
+
+        if pos < (int(d_season.best_race_result) if d_season.best_race_result != "N/A" else 999):
+            d_season.best_race_result = str(pos)
 
         # Best Results
         if pos < (int(d_career.best_race_result) if d_career.best_race_result != "N/A" else 999):
@@ -116,10 +126,16 @@ def update_round(round_number: int):
 
         # Update Constructor Stats
         c_season = db.query(ConstructorSeasonStats).filter_by(constructor_id=c_id, year=YEAR).first()
-        if not c_season: c_season = ConstructorSeasonStats(constructor_id=c_id, year=YEAR); db.add(c_season)
+        if not c_season:
+            c_season = ConstructorSeasonStats(constructor_id=c_id, year=YEAR)
+            db.add(c_season)
+            db.flush()
         
         c_career = db.query(ConstructorCareerStats).filter_by(constructor_id=c_id).first()
-        if not c_career: c_career = ConstructorCareerStats(constructor_id=c_id); db.add(c_career)
+        if not c_career:
+            c_career = ConstructorCareerStats(constructor_id=c_id)
+            db.add(c_career)
+            db.flush()
 
         c_career.total_points += points
         if pos == 1:
@@ -132,6 +148,11 @@ def update_round(round_number: int):
             c_season.fastest_laps += 1
             c_career.fastest_laps += 1
 
+        if is_dnf or is_dns:
+            c_season.retirements += 1
+        if is_dsq:
+            c_season.dsqs += 1
+
         if pos < (int(c_career.best_race_result) if c_career.best_race_result != "N/A" else 999):
             c_career.best_race_result = str(pos)
 
@@ -139,11 +160,17 @@ def update_round(round_number: int):
     # ELABORAZIONE QUALIFICHE (QUALI)
     # ==========================================
     print("Elaborazione Risultati Qualifiche...")
+    team_quali_sessions = {}
     for res in q_res:
         d_id = res["Driver"]["driverId"]
         c_id = res["Constructor"]["constructorId"]
         pos = int(res["position"])
         
+        if c_id not in team_quali_sessions: team_quali_sessions[c_id] = {"Q3": 0, "Q2": 0, "Q1": 0}
+        if res.get("Q3"): team_quali_sessions[c_id]["Q3"] += 1
+        if res.get("Q2"): team_quali_sessions[c_id]["Q2"] += 1
+        if res.get("Q1"): team_quali_sessions[c_id]["Q1"] += 1
+
         if c_id not in team_quali_h2h: team_quali_h2h[c_id] = []
         team_quali_h2h[c_id].append({"id": d_id, "pos": pos})
 
@@ -156,11 +183,8 @@ def update_round(round_number: int):
             if pos == 1:
                 d_season.pole_positions += 1
                 d_career.pole_positions += 1
-                c_season.pole_positions += 1
-                c_career.pole_positions += 1
             if pos <= 2:
                 d_season.front_rows += 1
-                c_season.front_rows += 1
             
             if pos < (int(d_career.best_grid_position) if d_career.best_grid_position != "N/A" else 999):
                 d_career.best_grid_position = str(pos)
@@ -186,6 +210,7 @@ def update_round(round_number: int):
 
             d_season = db.query(DriverSeasonStats).filter_by(driver_id=d_id, year=YEAR).first()
             d_career = db.query(DriverCareerStats).filter_by(driver_id=d_id).first()
+            c_season = db.query(ConstructorSeasonStats).filter_by(constructor_id=c_id, year=YEAR).first()
             c_career = db.query(ConstructorCareerStats).filter_by(constructor_id=c_id).first()
 
             if d_season and d_career and c_career:
@@ -194,6 +219,13 @@ def update_round(round_number: int):
                 d_season.sprint_points += int(points)
                 c_career.total_points += points
                 
+            if c_season:
+                if pos == 1:
+                    c_season.sprint_wins += 1
+                if pos <= 3:
+                    c_season.sprint_podiums += 1
+                c_season.sprint_points += int(points)
+
                 if pos == 1:
                     d_season.sprint_wins += 1
                     d_career.sprint_wins += 1
@@ -225,12 +257,48 @@ def update_round(round_number: int):
     for team_id, drivers in team_race_h2h.items():
         c_season = db.query(ConstructorSeasonStats).filter_by(constructor_id=team_id, year=YEAR).first()
         if c_season:
+            c_season.total_races += 1
             positions = sorted([d["pos"] for d in drivers])
             if len(positions) >= 2 and positions[0] == 1 and positions[1] == 2:
                 c_season.one_two_finishes += 1
             
             if team_dnfs.get(team_id, 0) >= 2:
                 c_season.double_dnfs += 1
+                
+            total_team_points = sum(d.get("points", 0) for d in drivers)
+            if total_team_points > 0:
+                c_season.races_in_points += 1
+
+    for team_id, sessions in team_quali_sessions.items():
+        c_season = db.query(ConstructorSeasonStats).filter_by(constructor_id=team_id, year=YEAR).first()
+        if c_season:
+            if sessions["Q3"] >= 2: c_season.double_q3 += 1
+            if sessions["Q2"] >= 2: c_season.double_q2 += 1
+            if sessions["Q1"] >= 2: c_season.double_q1 += 1
+    
+    # Correzione conteggio pole e front_rows per costruttori
+    pole_team = None
+    p1_team = None
+    p2_team = None
+    
+    for res in q_res:
+        pos = int(res['position'])
+        team_id = res['Constructor']['constructorId']
+        if pos == 1:
+            pole_team = team_id
+            p1_team = team_id
+        elif pos == 2:
+            p2_team = team_id
+    
+    if pole_team:
+        c_season = db.query(ConstructorSeasonStats).filter_by(constructor_id=pole_team, year=YEAR).first()
+        c_career = db.query(ConstructorCareerStats).filter_by(constructor_id=pole_team).first()
+        if c_season: c_season.pole_positions += 1
+        if c_career: c_career.pole_positions += 1
+
+    if p1_team and p2_team and p1_team == p2_team:
+        c_season = db.query(ConstructorSeasonStats).filter_by(constructor_id=p1_team, year=YEAR).first()
+        if c_season: c_season.front_rows += 1
 
     db.commit()
     db.close()

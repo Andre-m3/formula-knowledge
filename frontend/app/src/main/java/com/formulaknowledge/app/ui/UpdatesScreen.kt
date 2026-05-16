@@ -54,7 +54,7 @@ import kotlin.math.pow
 import com.formulaknowledge.app.data.*
 import kotlinx.coroutines.launch
 
-enum class AppScreen { HOME, CALENDAR, PERSONAL, UPDATES_LIST, TEAM_DETAIL, WEATHER_DETAIL, RESULTS, STANDINGS, DRIVER_DETAIL, RACE_SESSIONS, CIRCUIT_DETAIL }
+enum class AppScreen { HOME, CALENDAR, PERSONAL, UPDATES_LIST, TEAM_DETAIL, WEATHER_DETAIL, RESULTS, STANDINGS, DRIVER_DETAIL, CONSTRUCTOR_DETAIL, RACE_SESSIONS, CIRCUIT_DETAIL, HEAD_TO_HEAD, HEAD_TO_HEAD_CONSTRUCTOR }
 
 val AppBackgroundGradientColor = Color(0xFF0B0E14)
 
@@ -87,6 +87,11 @@ fun UpdatesScreen() {
     var selectedGpName by remember { mutableStateOf("") }
     var selectedDriverName by remember { mutableStateOf("") }
     var selectedCircuitRound by remember { mutableIntStateOf(0) }
+    var selectedConstructorId by remember { mutableStateOf("") }
+    var previousScreenForStats by remember { mutableStateOf(AppScreen.HOME) }
+    var selectedH2HDriverId by remember { mutableStateOf("") }
+    var selectedH2HConstructorId by remember { mutableStateOf("") }
+    var standingsSelectedTab by remember { mutableStateOf("Drivers") }
 
     var selectedSprintForSessions by remember { mutableStateOf(false) }
     var selectedGpForSessions by remember { mutableStateOf("") }
@@ -129,9 +134,12 @@ fun UpdatesScreen() {
         when (currentScreen) {
             AppScreen.CALENDAR, AppScreen.STANDINGS, AppScreen.PERSONAL, AppScreen.UPDATES_LIST, AppScreen.WEATHER_DETAIL -> currentScreen = AppScreen.HOME
             AppScreen.TEAM_DETAIL -> currentScreen = AppScreen.UPDATES_LIST
-            AppScreen.DRIVER_DETAIL -> currentScreen = (if (selectedRound > 0) AppScreen.RESULTS else AppScreen.STANDINGS)
+            AppScreen.DRIVER_DETAIL -> currentScreen = previousScreenForStats
+            AppScreen.CONSTRUCTOR_DETAIL -> currentScreen = previousScreenForStats
             AppScreen.CIRCUIT_DETAIL -> currentScreen = AppScreen.CALENDAR
             AppScreen.RESULTS -> currentScreen = AppScreen.CIRCUIT_DETAIL
+            AppScreen.HEAD_TO_HEAD -> currentScreen = AppScreen.DRIVER_DETAIL
+            AppScreen.HEAD_TO_HEAD_CONSTRUCTOR -> currentScreen = AppScreen.CONSTRUCTOR_DETAIL
             AppScreen.RACE_SESSIONS -> currentScreen = previousScreenForSessions
             else -> currentScreen = AppScreen.HOME
         }
@@ -210,16 +218,32 @@ fun UpdatesScreen() {
                     AppScreen.TEAM_DETAIL -> TeamUpdateDetailScreen(selectedTeam!!)
                     AppScreen.WEATHER_DETAIL -> WeatherDetailScreen(raceWeek, raceWeekEntity)
                     AppScreen.RESULTS -> RaceResultsScreen(selectedRound, selectedGpName, onDriverClick = { name ->
+                        previousScreenForStats = AppScreen.RESULTS
                         selectedDriverName = name
                         currentScreen = AppScreen.DRIVER_DETAIL
                     })
                     AppScreen.STANDINGS -> StandingsScreen(
+                        selectedTab = standingsSelectedTab,
+                        onTabChange = { standingsSelectedTab = it },
                         onDriverClick = { name ->
+                            previousScreenForStats = AppScreen.STANDINGS
                             selectedDriverName = name
                             currentScreen = AppScreen.DRIVER_DETAIL
+                        },
+                        onConstructorClick = { id ->
+                            previousScreenForStats = AppScreen.STANDINGS
+                            selectedConstructorId = id
+                            currentScreen = AppScreen.CONSTRUCTOR_DETAIL
                         }
                     )
-                    AppScreen.DRIVER_DETAIL -> DriverDetailScreen(selectedDriverName)
+                    AppScreen.DRIVER_DETAIL -> DriverDetailScreen(selectedDriverName, onNavigateToH2H = { id ->
+                        selectedH2HDriverId = id
+                        currentScreen = AppScreen.HEAD_TO_HEAD
+                    })
+                    AppScreen.CONSTRUCTOR_DETAIL -> ConstructorDetailScreen(selectedConstructorId, onNavigateToH2H = { id ->
+                        selectedH2HConstructorId = id
+                        currentScreen = AppScreen.HEAD_TO_HEAD_CONSTRUCTOR
+                    })
                     AppScreen.RACE_SESSIONS -> RaceSessionsScreen(selectedSprintForSessions, selectedGpForSessions, selectedCountryForSessions, selectedSessions, selectedGpStatusForSessions, selectedDatesForSessions)
                     AppScreen.CIRCUIT_DETAIL -> CircuitDetailScreen(
                         round = selectedCircuitRound,
@@ -238,10 +262,16 @@ fun UpdatesScreen() {
                         previousScreenForSessions = AppScreen.CIRCUIT_DETAIL
                             currentScreen = AppScreen.RACE_SESSIONS
                         })
+                    AppScreen.HEAD_TO_HEAD -> HeadToHeadScreen(selectedH2HDriverId, onBack = {
+                        currentScreen = AppScreen.DRIVER_DETAIL
+                    })
+                    AppScreen.HEAD_TO_HEAD_CONSTRUCTOR -> HeadToHeadConstructorScreen(selectedH2HConstructorId, onBack = {
+                        currentScreen = AppScreen.CONSTRUCTOR_DETAIL
+                    })
                 }
                 }
 
-            if (currentScreen in listOf(AppScreen.HOME, AppScreen.CALENDAR, AppScreen.PERSONAL, AppScreen.RESULTS, AppScreen.STANDINGS, AppScreen.WEATHER_DETAIL, AppScreen.DRIVER_DETAIL, AppScreen.RACE_SESSIONS, AppScreen.CIRCUIT_DETAIL)) {
+            if (currentScreen in listOf(AppScreen.HOME, AppScreen.CALENDAR, AppScreen.PERSONAL, AppScreen.RESULTS, AppScreen.STANDINGS, AppScreen.WEATHER_DETAIL, AppScreen.DRIVER_DETAIL, AppScreen.CONSTRUCTOR_DETAIL, AppScreen.RACE_SESSIONS, AppScreen.CIRCUIT_DETAIL)) {
                 Box(
                     modifier = Modifier
                         .offset(y = bottomBarOffset)
@@ -625,7 +655,7 @@ fun HistoricalStatItem(label: String, value: String, icon: androidx.compose.ui.g
 }
 
 @Composable
-fun DriverDetailScreen(driverName: String) {
+fun DriverDetailScreen(driverName: String, onNavigateToH2H: (String) -> Unit = {}) {
     val context = LocalContext.current
     val database = remember { FormulaDatabase.getDatabase(context) }
     val repository = remember { FormulaRepository(database) }
@@ -646,13 +676,16 @@ fun DriverDetailScreen(driverName: String) {
         else lowerLast
     }
 
+    val standings by repository.driverStandings.collectAsState(initial = emptyList())
     val stats by repository.getDriverStats(driverId).collectAsState(initial = null)
+    val seasonStats by repository.getDriverSeasonStats(driverId).collectAsState(initial = null)
 
     LaunchedEffect(driverId) {
         repository.refreshDriverStats(driverId)
+        repository.refreshDriverSeasonStats(driverId)
     }
 
-    var selectedTab by remember { mutableStateOf("Career") }
+    var selectedTab by remember { mutableStateOf("Season") }
     var swipeOffset by remember { mutableFloatStateOf(0f) }
     
     val dragModifier = Modifier.draggable(
@@ -661,10 +694,10 @@ fun DriverDetailScreen(driverName: String) {
             swipeOffset += delta
         },
         onDragStopped = {
-            if (swipeOffset < -150 && selectedTab == "Career") {
-                selectedTab = "Season"
-            } else if (swipeOffset > 150 && selectedTab == "Season") {
+            if (swipeOffset < -150 && selectedTab == "Season") {
                 selectedTab = "Career"
+            } else if (swipeOffset > 150 && selectedTab == "Career") {
+                selectedTab = "Season"
             }
             swipeOffset = 0f
         }
@@ -753,10 +786,10 @@ fun DriverDetailScreen(driverName: String) {
                 shape = RoundedCornerShape(12.dp),
                 color = Color(0xFF00FFCC).copy(alpha = 0.1f),
                 border = BorderStroke(1.dp, Color(0xFF00FFCC).copy(alpha = 0.4f)),
-                modifier = Modifier.clickable { /* TODO: Naviga alla schermata H2H */ }
+                modifier = Modifier.clickable { onNavigateToH2H(driverId) }
             ) {
                 Row(modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.CompareArrows, contentDescription = "Head to Head", tint = Color(0xFF00FFCC), modifier = Modifier.size(16.dp))
+                    Icon(Icons.Default.SwapHoriz, contentDescription = "Head to Head", tint = Color(0xFF00FFCC), modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(6.dp))
                     Text("HEAD 2 HEAD", color = Color(0xFF00FFCC), fontSize = 11.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic)
                 }
@@ -764,8 +797,8 @@ fun DriverDetailScreen(driverName: String) {
 
             // Slider Tabs
             Row(modifier = Modifier.wrapContentWidth().background(Color.White.copy(alpha = 0.04f), RoundedCornerShape(12.dp)).padding(2.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                TabItemMinimalAnimated("CAREER", selectedTab == "Career") { selectedTab = "Career" }
                 TabItemMinimalAnimated("2026", selectedTab == "Season") { selectedTab = "Season" }
+                TabItemMinimalAnimated("CAREER", selectedTab == "Career") { selectedTab = "Career" }
             }
         }
 
@@ -775,7 +808,7 @@ fun DriverDetailScreen(driverName: String) {
         AnimatedContent(
             targetState = selectedTab,
             transitionSpec = {
-                if (targetState == "Season") {
+                if (targetState == "Career") {
                     (slideInHorizontally { width -> width } + fadeIn()).togetherWith(slideOutHorizontally { width -> -width } + fadeOut())
                 } else {
                     (slideInHorizontally { width -> -width } + fadeIn()).togetherWith(slideOutHorizontally { width -> width } + fadeOut())
@@ -791,16 +824,16 @@ fun DriverDetailScreen(driverName: String) {
                     scaleX = 1f - (progress * 0.05f)
                 }
             ) {
-        if (stats == null) {
-            item {
-                Box(modifier = Modifier.fillMaxWidth().padding(top = 40.dp), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = Color(0xFF00FFCC))
-                }
-            }
-        } else {
-            item {
                 if (targetTab == "Career") {
-                stats?.let { statData ->
+                    if (stats == null) {
+                        item {
+                            Box(modifier = Modifier.fillMaxWidth().padding(top = 40.dp), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator(color = Color(0xFF00FFCC))
+                            }
+                        }
+                    } else {
+                        item {
+                            stats?.let { statData ->
                     // 1. CARDS PRINCIPALI
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         MiniStatCard(title = "RACES", value = statData.total_races.toString(), modifier = Modifier.weight(1f))
@@ -918,28 +951,535 @@ fun DriverDetailScreen(driverName: String) {
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
+                        }
+                    }
                 } else {
-                    // Paginata "2026 SEASON" (Placeholder)
-                    Surface(
-                        modifier = Modifier.fillMaxWidth().height(200.dp).padding(top = 8.dp),
-                        shape = RoundedCornerShape(24.dp),
-                        color = Color.White.copy(alpha = 0.03f),
-                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f))
-                    ) {
-                        Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(Icons.Default.QueryStats, null, tint = Color(0xFF00FFCC).copy(alpha = 0.5f), modifier = Modifier.size(48.dp))
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Text("2026 SEASON STATS", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic)
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text("In arrivo nuovi widget grafici...", color = Color.White.copy(alpha = 0.5f), fontSize = 13.sp)
+                    // SEASON 2026 STATS
+                    if (seasonStats == null) {
+                        item { Box(modifier = Modifier.fillMaxWidth().padding(top = 40.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Color(0xFF00FFCC)) } }
+                    } else {
+                        item {
+                            seasonStats?.let { seasonData ->
+                                val currentStanding = standings.find { it.driver_name.contains(lastName, ignoreCase = true) }
+                                val currentPos = currentStanding?.position ?: 0
+                                val currentPoints = currentStanding?.points ?: 0
+
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    MiniStatCard(title = "CHAMP POS", value = if (currentPos > 0) "P$currentPos" else "-", modifier = Modifier.weight(1f))
+                                    MiniStatCard(title = "POINTS", value = currentPoints.toString(), modifier = Modifier.weight(1f))
+                                    MiniStatCard(title = "CAR NO.", value = getDriverCarNumber(driverId), modifier = Modifier.weight(1f))
+                                }
+                                
+                                Spacer(modifier = Modifier.height(24.dp))
+                                HorizontalDivider(color = Color.White.copy(alpha = 0.1f), thickness = 1.dp)
+                                Spacer(modifier = Modifier.height(24.dp))
+                                
+                                Text("2026 HIGHLIGHTS", color = Color(0xFF00FFCC), fontSize = 26.sp, fontWeight = FontWeight.Black, letterSpacing = (-1).sp)
+                                Spacer(modifier = Modifier.height(16.dp))
+
+                                RatioProgressBar("Wins", seasonData.wins, seasonData.total_races)
+                                Spacer(modifier = Modifier.height(12.dp))
+                                RatioProgressBar("Podiums", seasonData.podiums, seasonData.total_races)
+                                Spacer(modifier = Modifier.height(12.dp))
+                                RatioProgressBar("Pole Positions", seasonData.pole_positions, seasonData.total_races)
+                                Spacer(modifier = Modifier.height(12.dp))
+                                RatioProgressBar("Fastest Laps", seasonData.fastest_laps, seasonData.total_races)
+                                Spacer(modifier = Modifier.height(12.dp))
+                                RatioProgressBar("Retirements (DNF/DNS)", seasonData.retirements, seasonData.total_races)
+                                if (seasonData.dsqs > 0) {
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    RatioProgressBar("Disqualifications (DSQ)", seasonData.dsqs, seasonData.total_races)
+                                }
+                                
+                                Spacer(modifier = Modifier.height(20.dp))
+                                val bestRaceInt = seasonData.best_race_result.toIntOrNull() ?: 0
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    BestResultCard(title = "BEST RACE\nPOSITION", value = if (bestRaceInt > 0) "P$bestRaceInt" else "-", modifier = Modifier.weight(1f))
+                                    BestResultCard(title = "RACES\nENTERED", value = seasonData.total_races.toString(), modifier = Modifier.weight(1f))
+                                }
+
+                                Spacer(modifier = Modifier.height(24.dp))
+                                HorizontalDivider(color = Color.White.copy(alpha = 0.1f), thickness = 1.dp)
+                                Spacer(modifier = Modifier.height(24.dp))
+
+                                Text("QUALIFYING PERFORMANCE", color = Color(0xFF00FFCC), fontSize = 26.sp, fontWeight = FontWeight.Black, letterSpacing = (-1).sp)
+                                Spacer(modifier = Modifier.height(16.dp))
+                                
+                                RatioProgressBar("Q3 Appearances", seasonData.q3_appearances, seasonData.total_races)
+                                Spacer(modifier = Modifier.height(12.dp))
+                                RatioProgressBar("Q2 Appearances", seasonData.q2_appearances, seasonData.total_races)
+                                Spacer(modifier = Modifier.height(12.dp))
+                                RatioProgressBar("Q1 Appearances", seasonData.q1_appearances, seasonData.total_races)
+
+                                Spacer(modifier = Modifier.height(24.dp))
+                                HorizontalDivider(color = Color.White.copy(alpha = 0.1f), thickness = 1.dp)
+                                Spacer(modifier = Modifier.height(24.dp))
+
+                                Text("SPRINT FORMAT", color = Color(0xFF00FFCC), fontSize = 26.sp, fontWeight = FontWeight.Black, letterSpacing = (-1).sp)
+                                Spacer(modifier = Modifier.height(16.dp))
+
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    MiniStatCard(title = "WINS", value = seasonData.sprint_wins.toString(), modifier = Modifier.weight(1f))
+                                    MiniStatCard(title = "TOP 3", value = seasonData.sprint_top_3.toString(), modifier = Modifier.weight(1f))
+                                    MiniStatCard(title = "POINTS", value = seasonData.sprint_points.toString(), modifier = Modifier.weight(1f))
+                                }
+
+                                Spacer(modifier = Modifier.height(24.dp))
+                                HorizontalDivider(color = Color.White.copy(alpha = 0.1f), thickness = 1.dp)
+                                Spacer(modifier = Modifier.height(24.dp))
+
+                                Text("DRIVER BIO", color = Color(0xFF00FFCC), fontSize = 26.sp, fontWeight = FontWeight.Black, letterSpacing = (-1).sp)
+                                Spacer(modifier = Modifier.height(16.dp))
+                                
+                                stats?.let { statData ->
+                                    val formattedDate = if (statData.date_of_birth != "N/A" && statData.date_of_birth.contains("-")) {
+                                        val parts = statData.date_of_birth.split("-")
+                                        if (parts.size == 3) "${parts[2]}/${parts[1]}/${parts[0]}" else statData.date_of_birth
+                                    } else {
+                                        "Unknown"
+                                    }
+                                    
+                                    val bioText = buildAnnotatedString {
+                                        withStyle(SpanStyle(color = Color.White, fontWeight = FontWeight.Black)) { append(driverName) }
+                                        append(", born in ")
+                                        withStyle(SpanStyle(color = Color.White, fontWeight = FontWeight.Black)) { append(if (statData.place_of_birth != "N/A") statData.place_of_birth else "Unknown") }
+                                        append(" on ")
+                                        withStyle(SpanStyle(color = Color.White, fontWeight = FontWeight.Black)) { append(formattedDate) }
+                                        append(", made their Formula 1 debut at the ")
+                                        withStyle(SpanStyle(color = Color.White, fontWeight = FontWeight.Black)) { append(if (statData.first_gp != "N/A") statData.first_gp.uppercase() else "Unknown GP") }
+                                        append(".")
+                                        
+                                        if (statData.first_win != "N/A" && statData.first_win.isNotBlank()) {
+                                            append("\nThey achieved their maiden victory at the ")
+                                            withStyle(SpanStyle(color = Color.White, fontWeight = FontWeight.Black)) { append(statData.first_win.uppercase()) }
+                                            append(".")
+                                        } else {
+                                            append("\nThey are currently still chasing their maiden Formula 1 victory.")
+                                        }
+                                        
+                                        append("\nThroughout their career, they have secured ")
+                                        withStyle(SpanStyle(color = Color.White, fontWeight = FontWeight.Black)) { append("${statData.pole_positions} Pole Positions") }
+                                        append(" and recorded ")
+                                        withStyle(SpanStyle(color = Color.White, fontWeight = FontWeight.Black)) { append("${statData.fastest_laps} Fastest Laps") }
+                                        append(".")
+                                    }
+                                    
+                                    Text(text = bioText, color = Color.White.copy(alpha = 0.7f), fontSize = 15.sp, lineHeight = 24.sp, modifier = Modifier.fillMaxWidth())
+                                } ?: run {
+                                    Text("Bio data is currently unavailable.", color = Color.White.copy(alpha = 0.5f))
+                                }
+
+                                Spacer(modifier = Modifier.height(16.dp))
+                            }
+                        }
+                    }
+                }
+        }
+    }
+}
+}
+
+@Composable
+fun ConstructorDetailScreen(constructorId: String, onNavigateToH2H: (String) -> Unit = {}) {
+    val context = LocalContext.current
+    val database = remember { FormulaDatabase.getDatabase(context) }
+    val repository = remember { FormulaRepository(database) }
+
+    val stats by repository.getConstructorStats(constructorId).collectAsState(initial = null)
+    val seasonStats by repository.getConstructorSeasonStats(constructorId).collectAsState(initial = null)
+        val standings by repository.constructorStandings.collectAsState(initial = emptyList())
+
+    LaunchedEffect(constructorId) {
+        repository.refreshConstructorStats(constructorId)
+        repository.refreshConstructorSeasonStats(constructorId)
+    }
+
+    var selectedTab by remember { mutableStateOf("Season") }
+    var swipeOffset by remember { mutableFloatStateOf(0f) }
+    
+    val dragModifier = Modifier.draggable(
+        orientation = Orientation.Horizontal,
+        state = rememberDraggableState { delta ->
+            swipeOffset += delta
+        },
+        onDragStopped = {
+            if (swipeOffset < -150 && selectedTab == "Season") {
+                selectedTab = "All-Time"
+            } else if (swipeOffset > 150 && selectedTab == "All-Time") {
+                selectedTab = "Season"
+            }
+            swipeOffset = 0f
+        }
+    )
+
+    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp).then(dragModifier)) {
+        Spacer(modifier = Modifier.height(26.dp))
+        
+        val isTwoLines = constructorId == "aston_martin" || constructorId == "rb"
+        val headerHeight = if (isTwoLines) 165.dp else 130.dp
+        val flagOffsetY = if (isTwoLines) (-5).dp else 25.dp
+        
+        Box(modifier = Modifier.fillMaxWidth().height(headerHeight), contentAlignment = Alignment.BottomStart) {
+            val countryName = getConstructorCountryForFlag(constructorId)
+            val resourceName = "flag_$countryName"
+            val resourceId = remember(resourceName) {
+                context.resources.getIdentifier(resourceName, "drawable", context.packageName)
+            }
+
+            if (resourceId != 0) {
+                Box(
+                    modifier = Modifier
+                        .requiredHeight(180.dp)
+                        .fillMaxWidth(0.8f)
+                        .align(Alignment.BottomEnd)
+                        .graphicsLayer {
+                            alpha = 0.99f
+                            translationX = 20.dp.toPx()
+                            translationY = flagOffsetY.toPx()
+                            scaleX = 1.26f
+                            scaleY = 1.26f
+                        }
+                        .drawWithContent {
+                            drawContent()
+                            drawRect(brush = Brush.horizontalGradient(colors = listOf(Color.Transparent, Color.Black), startX = 0f, endX = size.width * 0.6f), blendMode = BlendMode.DstIn)
+                            drawRect(brush = Brush.verticalGradient(colors = listOf(Color.Black, Color.Transparent), startY = size.height * 0.35f, endY = size.height), blendMode = BlendMode.DstIn)
+                        }
+                ) {
+                    Image(
+                        painter = painterResource(id = resourceId),
+                        contentDescription = "Constructor Nationality Flag",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize().alpha(0.35f)
+                    )
+                }
+            }
+
+            Column {
+                Text(
+                    text = getConstructorDisplayName(constructorId),
+                    color = Color.White,
+                    fontSize = 54.sp,
+                    fontWeight = FontWeight.Black,
+                    fontStyle = FontStyle.Italic,
+                    letterSpacing = (-3).sp,
+                    lineHeight = 44.sp,
+                    maxLines = 2
+                )
+                Text(
+                    text = "TEAM STATS",
+                    color = Color(0xFF00FFCC),
+                    fontSize = 38.sp,
+                    fontWeight = FontWeight.Black,
+                    fontStyle = FontStyle.Italic,
+                    letterSpacing = (-2).sp,
+                    modifier = Modifier.offset(y = (-10).dp)
+                )
+            }
+        }
+        
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // ROW: Pulsante H2H e Slider Tabs
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = Color(0xFF00FFCC).copy(alpha = 0.1f),
+                border = BorderStroke(1.dp, Color(0xFF00FFCC).copy(alpha = 0.4f)),
+                modifier = Modifier.clickable { onNavigateToH2H(constructorId) }
+            ) {
+                Row(modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.SwapHoriz, contentDescription = "Head to Head", tint = Color(0xFF00FFCC), modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("HEAD 2 HEAD", color = Color(0xFF00FFCC), fontSize = 11.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic)
+                }
+            }
+
+            Row(modifier = Modifier.wrapContentWidth().background(Color.White.copy(alpha = 0.04f), RoundedCornerShape(12.dp)).padding(2.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                TabItemMinimalAnimated("2026", selectedTab == "Season") { selectedTab = "Season" }
+                TabItemMinimalAnimated("ALL-TIME", selectedTab == "All-Time") { selectedTab = "All-Time" }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(26.dp))
+
+        AnimatedContent(
+            targetState = selectedTab,
+            transitionSpec = {
+                if (targetState == "All-Time") {
+                    (slideInHorizontally { width -> width } + fadeIn()).togetherWith(slideOutHorizontally { width -> -width } + fadeOut())
+                } else {
+                    (slideInHorizontally { width -> -width } + fadeIn()).togetherWith(slideOutHorizontally { width -> width } + fadeOut())
+                }.using(SizeTransform(clip = false))
+            },
+            label = "ConstructorStatsTabTransition"
+        ) { targetTab ->
+            LazyColumn(
+                contentPadding = PaddingValues(bottom = 120.dp),
+                modifier = Modifier.fillMaxSize().graphicsLayer {
+                    val progress = min(1f, abs(swipeOffset) / 500f)
+                    alpha = 1f - (progress * 0.5f)
+                    scaleX = 1f - (progress * 0.05f)
+                }
+            ) {
+                if (targetTab == "All-Time") {
+                    if (stats == null) {
+                        item { Box(modifier = Modifier.fillMaxWidth().padding(top = 40.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Color(0xFF00FFCC)) } }
+                    } else {
+                        item {
+                            stats?.let { statData ->
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    MiniStatCard(title = "RACES", value = statData.total_races.toString(), modifier = Modifier.weight(1f))
+                                    MiniStatCard(title = "WINS", value = statData.wins.toString(), modifier = Modifier.weight(1f))
+                                    MiniStatCard(title = "PODIUMS", value = statData.podiums.toString(), modifier = Modifier.weight(1f))
+                                }
+                                
+                                Spacer(modifier = Modifier.height(24.dp))
+                                HorizontalDivider(color = Color.White.copy(alpha = 0.1f), thickness = 1.dp)
+                                Spacer(modifier = Modifier.height(24.dp))
+                                
+                                Text("TEAM HISTORY", color = Color(0xFF00FFCC), fontSize = 26.sp, fontWeight = FontWeight.Black, letterSpacing = (-1).sp)
+                                Spacer(modifier = Modifier.height(16.dp))
+
+                                RatioProgressBar("Win Rate", statData.wins, statData.total_races)
+                                Spacer(modifier = Modifier.height(12.dp))
+                                RatioProgressBar("Podium Rate", statData.podiums, statData.total_races)
+                                Spacer(modifier = Modifier.height(12.dp))
+                                RatioProgressBar("Pole Positions", statData.pole_positions, statData.total_races)
+                                Spacer(modifier = Modifier.height(12.dp))
+                                RatioProgressBar("Fastest Laps", statData.fastest_laps, statData.total_races)
+                                Spacer(modifier = Modifier.height(20.dp))
+
+                                val bestRaceInt = statData.best_race_result.toIntOrNull() ?: 0
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    BestResultCard(title = "BEST RACE\nPOSITION", value = if (bestRaceInt > 0) "P$bestRaceInt" else "-", modifier = Modifier.weight(1f))
+                                    val champPosMatch = statData.best_championship_result.takeWhile { it.isDigit() }
+                                    val champDisplay = if (champPosMatch.isNotEmpty()) "P$champPosMatch" else "-"
+                                    BestResultCard(title = "BEST CHAMP\nPOSITION", value = champDisplay, modifier = Modifier.weight(1f))
+                                }
+
+                                Spacer(modifier = Modifier.height(32.dp))
+                                Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { HorizontalDivider(color = Color.White.copy(alpha = 0.1f), thickness = 1.dp, modifier = Modifier.fillMaxWidth(0.68f)) }
+                                Spacer(modifier = Modifier.height(24.dp))
+
+                                Text("TROPHY CABINET", color = Color(0xFF00FFCC), fontSize = 26.sp, fontWeight = FontWeight.Black, letterSpacing = (-1).sp)
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    MiniStatCard(title = "DRIVERS WDC", value = statData.driver_championships.toString(), modifier = Modifier.weight(1f))
+                                    MiniStatCard(title = "CONSTRUCTORS", value = statData.constructor_championships.toString(), modifier = Modifier.weight(1f))
+                                    MiniStatCard(title = "SEASONS", value = statData.seasons_entered.toString(), modifier = Modifier.weight(1f))
+                                }
+                                
+                                Spacer(modifier = Modifier.height(24.dp))
+                                HorizontalDivider(color = Color.White.copy(alpha = 0.1f), thickness = 1.dp)
+                                Spacer(modifier = Modifier.height(24.dp))
+
+                                Text("TEAM BIO", color = Color(0xFF00FFCC), fontSize = 26.sp, fontWeight = FontWeight.Black, letterSpacing = (-1).sp)
+                                Spacer(modifier = Modifier.height(16.dp))
+                                
+                                val bioText = buildAnnotatedString {
+                                    append("The team made its debut in F1 in ")
+                                    withStyle(SpanStyle(color = Color.White, fontWeight = FontWeight.Black)) { append(if (statData.first_gp_year != "N/A") statData.first_gp_year else "Unknown") }
+                                    append(", and its base of operations is currently located in ")
+                                    withStyle(SpanStyle(color = Color.White, fontWeight = FontWeight.Black)) { append(if (statData.base_location != "N/A") statData.base_location else "an unknown location") }
+                                    append(".\nThe current Team Principal is ")
+                                    withStyle(SpanStyle(color = Color.White, fontWeight = FontWeight.Black)) { append(if (statData.team_principal != "N/A") statData.team_principal else "Unknown") }
+                                    append(" and the cars are powered by ")
+                                    withStyle(SpanStyle(color = Color.White, fontWeight = FontWeight.Black)) { append(if (statData.power_unit != "N/A") statData.power_unit else "Unknown") }
+                                    append(" engines.\nThe team's first historic victory arrived in ")
+                                    withStyle(SpanStyle(color = Color.White, fontWeight = FontWeight.Black)) { append(if (statData.first_win != "N/A") statData.first_win else "Unknown") }
+                                    append(".\nThey have collected a total of ")
+                                    withStyle(SpanStyle(color = Color.White, fontWeight = FontWeight.Black)) { append("${statData.total_points.toString().removeSuffix(".0")} points") }
+                                    append(" throughout their history.")
+                                }
+                                
+                                Text(text = bioText, color = Color.White.copy(alpha = 0.7f), fontSize = 15.sp, lineHeight = 24.sp, modifier = Modifier.fillMaxWidth())
+                            }
+                        }
+                    }
+                } else {
+                    // SEASON 2026 STATS
+                    if (seasonStats == null) {
+                        item { Box(modifier = Modifier.fillMaxWidth().padding(top = 40.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Color(0xFF00FFCC)) } }
+                    } else {
+                        item {
+                            seasonStats?.let { seasonData ->
+                                val currentStanding = standings.find { getConstructorIdForStats(it.constructor_name) == constructorId }
+                                val currentPos = currentStanding?.position ?: 0
+                                val currentPoints = currentStanding?.points ?: 0
+
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    MiniStatCard(title = "CHAMP POS", value = if (currentPos > 0) "P$currentPos" else "-", modifier = Modifier.weight(1f))
+                                    MiniStatCard(title = "POINTS", value = currentPoints.toString(), modifier = Modifier.weight(1f))
+                                    MiniStatCard(title = "RACES", value = seasonData.total_races.toString(), modifier = Modifier.weight(1f))
+                                }
+                                
+                                Spacer(modifier = Modifier.height(24.dp))
+                                HorizontalDivider(color = Color.White.copy(alpha = 0.1f), thickness = 1.dp)
+                                Spacer(modifier = Modifier.height(24.dp))
+                                
+                                Text("2026 HIGHLIGHTS", color = Color(0xFF00FFCC), fontSize = 26.sp, fontWeight = FontWeight.Black, letterSpacing = (-1).sp)
+                                Spacer(modifier = Modifier.height(16.dp))
+
+                                RatioProgressBar("Wins", seasonData.wins, seasonData.total_races)
+                                Spacer(modifier = Modifier.height(12.dp))
+                                RatioProgressBar("Podiums", seasonData.podiums, seasonData.total_races)
+                                Spacer(modifier = Modifier.height(12.dp))
+                                RatioProgressBar("1-2 Finishes", seasonData.one_two_finishes, seasonData.total_races)
+                                Spacer(modifier = Modifier.height(12.dp))
+                                RatioProgressBar("Pole Positions", seasonData.pole_positions, seasonData.total_races)
+                                Spacer(modifier = Modifier.height(12.dp))
+                                RatioProgressBar("Front Rows", seasonData.front_rows, seasonData.total_races)
+                                Spacer(modifier = Modifier.height(12.dp))
+                                RatioProgressBar("Fastest Laps", seasonData.fastest_laps, seasonData.total_races)
+                                Spacer(modifier = Modifier.height(12.dp))
+                                RatioProgressBar("Races in Points", seasonData.races_in_points, seasonData.total_races)
+                                Spacer(modifier = Modifier.height(12.dp))
+                                RatioProgressBar("Retirements (DNF/DNS)", seasonData.retirements, seasonData.total_races * 2)
+                                if (seasonData.double_dnfs > 0) {
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    RatioProgressBar("Double DNFs", seasonData.double_dnfs, seasonData.total_races)
+                                }
+                                if (seasonData.dsqs > 0) {
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    RatioProgressBar("Disqualifications (DSQ)", seasonData.dsqs, seasonData.total_races * 2)
+                                }
+
+                                Spacer(modifier = Modifier.height(24.dp))
+                                HorizontalDivider(color = Color.White.copy(alpha = 0.1f), thickness = 1.dp)
+                                Spacer(modifier = Modifier.height(24.dp))
+                                
+                                Text("QUALIFYING TEAMWORK", color = Color(0xFF00FFCC), fontSize = 26.sp, fontWeight = FontWeight.Black, letterSpacing = (-1).sp)
+                                Spacer(modifier = Modifier.height(16.dp))
+                                
+                                RatioProgressBar("Double Q3", seasonData.double_q3, seasonData.total_races)
+                                Spacer(modifier = Modifier.height(12.dp))
+                                RatioProgressBar("Double Q2", seasonData.double_q2, seasonData.total_races)
+                                Spacer(modifier = Modifier.height(12.dp))
+                                RatioProgressBar("Double Q1", seasonData.double_q1, seasonData.total_races)
+
+                                Spacer(modifier = Modifier.height(24.dp))
+                                HorizontalDivider(color = Color.White.copy(alpha = 0.1f), thickness = 1.dp)
+                                Spacer(modifier = Modifier.height(24.dp))
+
+                                Text("SPRINT FORMAT", color = Color(0xFF00FFCC), fontSize = 26.sp, fontWeight = FontWeight.Black, letterSpacing = (-1).sp)
+                                Spacer(modifier = Modifier.height(16.dp))
+
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    MiniStatCard(title = "WINS", value = seasonData.sprint_wins.toString(), modifier = Modifier.weight(1f))
+                                    MiniStatCard(title = "TOP 3", value = seasonData.sprint_podiums.toString(), modifier = Modifier.weight(1f))
+                                    MiniStatCard(title = "POINTS", value = seasonData.sprint_points.toString(), modifier = Modifier.weight(1f))
+                                }
+
+                                Spacer(modifier = Modifier.height(24.dp))
+                                HorizontalDivider(color = Color.White.copy(alpha = 0.1f), thickness = 1.dp)
+                                Spacer(modifier = Modifier.height(24.dp))
+
+                                Text("TEAM BIO", color = Color(0xFF00FFCC), fontSize = 26.sp, fontWeight = FontWeight.Black, letterSpacing = (-1).sp)
+                                Spacer(modifier = Modifier.height(16.dp))
+                                
+                                stats?.let { statData ->
+                                    val bioText = buildAnnotatedString {
+                                        append("The team made its debut in F1 in ")
+                                        withStyle(SpanStyle(color = Color.White, fontWeight = FontWeight.Black)) { append(if (statData.first_gp_year != "N/A") statData.first_gp_year else "Unknown") }
+                                        append(", and its base of operations is currently located in ")
+                                        withStyle(SpanStyle(color = Color.White, fontWeight = FontWeight.Black)) { append(if (statData.base_location != "N/A") statData.base_location else "an unknown location") }
+                                        append(".\nThe current Team Principal is ")
+                                        withStyle(SpanStyle(color = Color.White, fontWeight = FontWeight.Black)) { append(if (statData.team_principal != "N/A") statData.team_principal else "Unknown") }
+                                        append(" and the cars are powered by ")
+                                        withStyle(SpanStyle(color = Color.White, fontWeight = FontWeight.Black)) { append(if (statData.power_unit != "N/A") statData.power_unit else "Unknown") }
+                                        append(" engines.\nThe team's first historic victory arrived in ")
+                                        withStyle(SpanStyle(color = Color.White, fontWeight = FontWeight.Black)) { append(if (statData.first_win != "N/A") statData.first_win else "Unknown") }
+                                        append(".\nThey have collected a total of ")
+                                        withStyle(SpanStyle(color = Color.White, fontWeight = FontWeight.Black)) { append("${statData.total_points.toString().removeSuffix(".0")} points") }
+                                        append(" throughout their history.")
+                                    }
+                                    Text(text = bioText, color = Color.White.copy(alpha = 0.7f), fontSize = 15.sp, lineHeight = 24.sp, modifier = Modifier.fillMaxWidth())
+                                } ?: run {
+                                    Text("Bio data is currently unavailable.", color = Color.White.copy(alpha = 0.5f))
+                                }
+                            }
                         }
                     }
                 }
             }
-            }
         }
     }
 }
+
+fun getConstructorIdForStats(fullName: String): String {
+    val lower = fullName.lowercase()
+    return when {
+        lower.contains("mercedes") -> "mercedes"
+        lower.contains("ferrari") -> "ferrari"
+        lower.contains("red bull") || lower.contains("redbull") -> "red_bull"
+        lower.contains("mclaren") -> "mclaren"
+        lower.contains("aston") -> "aston_martin"
+        lower.contains("alpine") -> "alpine"
+        lower.contains("williams") -> "williams"
+        lower.contains("racing bulls") || lower.contains("rb") || lower.contains("alphatauri") -> "rb"
+        lower.contains("haas") -> "haas"
+        lower.contains("audi") || lower.contains("sauber") || lower.contains("alfa") -> "sauber"
+        lower.contains("cadillac") -> "cadillac"
+        else -> lower.replace(" ", "_")
+    }
+}
+
+fun getConstructorDisplayName(id: String): String {
+    return when(id) {
+        "mercedes" -> "MERCEDES"
+        "ferrari" -> "FERRARI"
+        "red_bull" -> "RED BULL"
+        "mclaren" -> "MCLAREN"
+        "aston_martin" -> "ASTON MARTIN"
+        "alpine" -> "ALPINE"
+        "williams" -> "WILLIAMS"
+        "rb" -> "RACING BULLS"
+        "haas" -> "HAAS"
+        "sauber", "audi" -> "AUDI"
+        "cadillac" -> "CADILLAC"
+        else -> id.uppercase().replace("_", " ")
+    }
+}
+
+fun getDriverCarNumber(driverId: String): String {
+    return when(driverId) {
+        "max_verstappen" -> "3"
+        "hadjar" -> "6"
+        "leclerc" -> "16"
+        "hamilton" -> "44"
+        "russell" -> "63"
+        "antonelli" -> "12"
+        "norris" -> "1"
+        "piastri" -> "81"
+        "alonso" -> "14"
+        "stroll" -> "18"
+        "gasly" -> "10"
+        "colapinto" -> "43"
+        "albon" -> "23"
+        "sainz" -> "55"
+        "arvid_lindblad" -> "41"
+        "lawson" -> "30"
+        "hulkenberg" -> "27"
+        "bortoleto" -> "5"
+        "ocon" -> "31"
+        "bearman" -> "87"
+        "perez" -> "11"
+        "bottas" -> "77"
+        else -> "-"
+    }
+}
+
+fun getConstructorCountryForFlag(id: String): String {
+    return when(id) {
+        "mercedes" -> "germany"
+        "ferrari", "rb" -> "italy"
+        "red_bull" -> "austria"
+        "mclaren", "aston_martin", "williams" -> "uk"
+        "alpine" -> "france"
+        "haas", "cadillac" -> "usa"
+        "sauber", "audi" -> "switzerland"
+        else -> ""
+    }
 }
 
 fun getDriverCountryForFlag(driverId: String): String {
@@ -1071,7 +1611,10 @@ fun BestResultCard(title: String, value: String, modifier: Modifier = Modifier) 
 
 @Composable
 fun StandingsScreen(
-    onDriverClick: (String) -> Unit = {}
+    selectedTab: String,
+    onTabChange: (String) -> Unit,
+    onDriverClick: (String) -> Unit = {},
+    onConstructorClick: (String) -> Unit = {}
 ) {
     val context = LocalContext.current
     val database = remember { FormulaDatabase.getDatabase(context) }
@@ -1085,7 +1628,6 @@ fun StandingsScreen(
     val drivers = driverEntities.map { DriverStanding(it.position, it.driver_name, it.constructor_name, it.points, it.wins) }
     val constructors = constructorEntities.map { ConstructorStanding(it.position, it.constructor_name, it.chassis_name, it.points, it.wins) }
 
-    var selectedTab by remember { mutableStateOf("Drivers") }
     val isLoading = drivers.isEmpty() && constructors.isEmpty()
     
     var swipeOffset by remember { mutableFloatStateOf(0f) }
@@ -1096,9 +1638,9 @@ fun StandingsScreen(
         },
         onDragStopped = {
             if (swipeOffset < -150 && selectedTab == "Drivers") {
-                selectedTab = "Constructors"
+                onTabChange("Constructors")
             } else if (swipeOffset > 150 && selectedTab == "Constructors") {
-                selectedTab = "Drivers"
+                onTabChange("Drivers")
             }
             swipeOffset = 0f
         }
@@ -1118,8 +1660,8 @@ fun StandingsScreen(
             Text(text = "2026", color = Color(0xFF00FFCC), fontSize = 38.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic, letterSpacing = (-2).sp)
             Spacer(modifier = Modifier.width(16.dp)) // Distanza minima dallo slider
             Row(modifier = Modifier.wrapContentWidth().background(Color.White.copy(alpha = 0.04f), RoundedCornerShape(12.dp)).padding(2.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                TabItemMinimalAnimated("Drivers", selectedTab == "Drivers") { selectedTab = "Drivers" }
-                TabItemMinimalAnimated("Constructors", selectedTab == "Constructors") { selectedTab = "Constructors" }
+                TabItemMinimalAnimated("Drivers", selectedTab == "Drivers") { onTabChange("Drivers") }
+                TabItemMinimalAnimated("Constructors", selectedTab == "Constructors") { onTabChange("Constructors") }
             }
         }
 
@@ -1149,7 +1691,7 @@ fun StandingsScreen(
                         val secondPlacePoints = drivers.getOrNull(1)?.points ?: 0
                         if (leader != null) {
                             item {
-                                LeaderCard(name = leader.driver_name, subtitle = formatStandingsTeam(leader.constructor_name), points = leader.points.toString(), gap = if (leader.points - secondPlacePoints > 0) "+${leader.points - secondPlacePoints} PTS" else "LEADER", icon = "1", onClick = { onDriverClick(leader.driver_name) })
+                                LeaderCard(name = leader.driver_name, subtitle = formatStandingsTeam(leader.constructor_name), points = leader.points.toString(), gap = if (leader.points - secondPlacePoints > 0) "+${leader.points - secondPlacePoints} PTS" else "LEADER", icon = "1", onClick = { onDriverClick(leader.driver_name) }) // Pilota non invia constructor click
                                 Spacer(modifier = Modifier.height(12.dp))
                             }
                         }
@@ -1165,12 +1707,13 @@ fun StandingsScreen(
                                     points = leader.points.toString(),
                                     gap = if (leader.points - secondPlacePoints > 0) "+${leader.points - secondPlacePoints} PTS" else "LEADER",
                                     icon = "\uD83C\uDFCE\uFE0F",
-                                    teamNameForImage = leader.constructor_name
+                                    teamNameForImage = leader.constructor_name,
+                                    onClick = { onConstructorClick(getConstructorIdForStats(leader.constructor_name)) }
                                 )
                                 Spacer(modifier = Modifier.height(12.dp))
                             }
                         }
-                        items(constructors.drop(1)) { team -> StandingRow(team.position, formatStandingsTeam(team.constructor_name), team.points.toString(), subtitle = team.chassis_name, height = 61.dp) }
+                        items(constructors.drop(1)) { team -> StandingRow(team.position, formatStandingsTeam(team.constructor_name), team.points.toString(), subtitle = team.chassis_name, height = 61.dp, onClick = { onConstructorClick(getConstructorIdForStats(team.constructor_name)) }) }
                     }
                 }
             }
@@ -1295,6 +1838,7 @@ fun FloatingBottomBar(currentScreen: AppScreen, onNavigate: (AppScreen) -> Unit)
                 AppScreen.CIRCUIT_DETAIL -> AppScreen.CALENDAR
                 AppScreen.STANDINGS -> AppScreen.STANDINGS
                 AppScreen.DRIVER_DETAIL -> AppScreen.STANDINGS
+                AppScreen.CONSTRUCTOR_DETAIL -> AppScreen.STANDINGS
                 AppScreen.PERSONAL -> AppScreen.PERSONAL
                 AppScreen.RESULTS -> AppScreen.CALENDAR
                 else -> AppScreen.HOME
@@ -1308,9 +1852,9 @@ fun FloatingBottomBar(currentScreen: AppScreen, onNavigate: (AppScreen) -> Unit)
                 items.forEach { (icon, label, screen) ->
                     val isSelected = when {
                         currentScreen == screen -> true
-                        screen == AppScreen.STANDINGS && (currentScreen == AppScreen.STANDINGS || currentScreen == AppScreen.DRIVER_DETAIL) -> true
+                        screen == AppScreen.STANDINGS && (currentScreen == AppScreen.STANDINGS || currentScreen == AppScreen.DRIVER_DETAIL || currentScreen == AppScreen.CONSTRUCTOR_DETAIL) -> true
                         screen == AppScreen.CALENDAR && (currentScreen == AppScreen.RESULTS || currentScreen == AppScreen.CIRCUIT_DETAIL) -> true
-                        screen == AppScreen.HOME && currentScreen !in listOf(AppScreen.CALENDAR, AppScreen.PERSONAL, AppScreen.RESULTS, AppScreen.STANDINGS, AppScreen.WEATHER_DETAIL, AppScreen.DRIVER_DETAIL, AppScreen.RACE_SESSIONS, AppScreen.CIRCUIT_DETAIL) -> true
+                        screen == AppScreen.HOME && currentScreen !in listOf(AppScreen.CALENDAR, AppScreen.PERSONAL, AppScreen.RESULTS, AppScreen.STANDINGS, AppScreen.WEATHER_DETAIL, AppScreen.DRIVER_DETAIL, AppScreen.CONSTRUCTOR_DETAIL, AppScreen.RACE_SESSIONS, AppScreen.CIRCUIT_DETAIL) -> true
                         else -> false
                     }
                     Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {

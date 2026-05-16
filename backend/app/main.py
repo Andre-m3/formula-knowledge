@@ -42,6 +42,8 @@ class DriverSeasonStatsResponseSchema(BaseModel):
     q3_appearances: int
     q2_appearances: int
     q1_appearances: int
+    dsqs: int
+    best_race_result: str
     sprint_starts: int
     sprint_wins: int
     sprint_top_3: int
@@ -62,6 +64,15 @@ class ConstructorSeasonStatsResponseSchema(BaseModel):
     front_rows: int
     one_two_finishes: int
     double_dnfs: int
+    retirements: int
+    dsqs: int
+    races_in_points: int
+    double_q3: int
+    double_q2: int
+    double_q1: int
+    sprint_wins: int
+    sprint_podiums: int
+    sprint_points: int
     last_updated: datetime
 
 from . import database, models
