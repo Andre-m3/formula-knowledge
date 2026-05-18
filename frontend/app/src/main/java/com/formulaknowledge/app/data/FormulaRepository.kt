@@ -1,5 +1,6 @@
 package com.formulaknowledge.app.data
 
+import android.util.Log
 import kotlinx.coroutines.flow.Flow
 import com.google.gson.Gson
 import kotlinx.coroutines.coroutineScope
@@ -22,7 +23,25 @@ class FormulaRepository(private val database: FormulaDatabase) {
     val driverStandings: Flow<List<DriverStandingEntity>> = dao.getDriverStandings()
     val constructorStandings: Flow<List<ConstructorStandingEntity>> = dao.getConstructorStandings()
 
+    companion object {
+        // Variabili in memoria CONDIVISE per evitare di spammare chiamate di rete tra le schermate
+        private var lastStandingsFetch = 0L
+        private val fetchedDriverStats = mutableMapOf<String, Long>()
+        private val fetchedDriverSeasonStats = mutableMapOf<String, Long>()
+        private val fetchedConstructorStats = mutableMapOf<String, Long>()
+        private val fetchedConstructorSeasonStats = mutableMapOf<String, Long>()
+        private const val CACHE_EXPIRY = 30 * 60 * 1000L // 30 minuti
+    }
+
     suspend fun refreshStandings() {
+        val now = System.currentTimeMillis()
+        val localDrivers = dao.getDriverStandings().firstOrNull()
+        
+        // Se abbiamo già dei dati locali e l'ultima chiamata è stata fatta da meno di 30 minuti, saltiamo!
+        if (!localDrivers.isNullOrEmpty() && (now - lastStandingsFetch < CACHE_EXPIRY)) {
+            return
+        }
+
         try {
             // 1. Scarica i dati freschi da Internet
             val apiDrivers = RetrofitClient.apiService.getDriverStandings()
@@ -44,18 +63,18 @@ class FormulaRepository(private val database: FormulaDatabase) {
             coroutineScope {
                 apiDrivers.forEach { driver ->
                     launch {
+                        // Il controllo TTL è ora DENTRO refreshDriverStats, quindi possiamo chiamarlo in sicurezza.
                         val driverId = F1Utils.getDriverIdFromName(driver.driver_name)
-
-                        val existingStats = driverStatsDao.getStats(driverId).firstOrNull()
-                        if (existingStats == null) {
-                            refreshDriverStats(driverId)
-                        }
+                        refreshDriverStats(driverId)
                     }
                 }
             }
 
+            lastStandingsFetch = System.currentTimeMillis()
+
         } catch (e: Exception) {
             // Se c'è un errore (es. nessuna connessione WiFi), lo ignoriamo!
+            Log.e("FormulaRepository", "refreshStandings failed", e)
             // L'utente continuerà felicemente a visualizzare i dati salvati in locale nel DB.
         }
     }
@@ -88,7 +107,9 @@ class FormulaRepository(private val database: FormulaDatabase) {
                 fp1, fp2, fp3, sprintShootout, sprintRace, quali, race
             )
             raceDao.insertCircuitDetail(entity)
-        } catch (e: Exception) {}
+        } catch (e: Exception) {
+            Log.e("FormulaRepository", "refreshCircuitDetail for round $round failed", e)
+        }
     }
 
     suspend fun refreshRaceResults(round: Int) {
@@ -96,7 +117,9 @@ class FormulaRepository(private val database: FormulaDatabase) {
             val apiData = RetrofitClient.apiService.getResults(round)
             val entities = apiData.map { RaceResultEntity(0, round, it.position, it.driver, it.team, it.points, it.time) }
             raceDao.updateRaceResults(round, entities)
-        } catch (e: Exception) {}
+        } catch (e: Exception) {
+            Log.e("FormulaRepository", "refreshRaceResults for round $round failed", e)
+        }
     }
 
     val calendar: Flow<List<CalendarEntity>> = generalDao.getCalendar()
@@ -133,7 +156,9 @@ class FormulaRepository(private val database: FormulaDatabase) {
                     }
                 }
             }
-        } catch (e: Exception) {}
+        } catch (e: Exception) {
+            Log.e("FormulaRepository", "refreshCalendar failed", e)
+        }
     }
 
     suspend fun refreshCurrentRaceWeek() {
@@ -152,12 +177,22 @@ class FormulaRepository(private val database: FormulaDatabase) {
                 apiData.sessions.sprint_shootout, apiData.sessions.sprint_race, apiData.sessions.quali, apiData.sessions.race
             )
             generalDao.insertRaceWeek(entity)
-        } catch (e: Exception) { /* Ignoriamo l'errore, la UI gestirà i dati vecchi/assenti */ }
+        } catch (e: Exception) {
+            Log.e("FormulaRepository", "refreshCurrentRaceWeek failed", e)
+            /* Ignoriamo l'errore, la UI gestirà i dati vecchi/assenti */ }
     }
 
     fun getDriverStats(driverId: String): Flow<DriverStatsEntity?> = driverStatsDao.getStats(driverId)
 
     suspend fun refreshDriverStats(driverId: String) {
+        val now = System.currentTimeMillis()
+        val lastFetch = fetchedDriverStats[driverId] ?: 0L
+        val localData = driverStatsDao.getStats(driverId).firstOrNull()
+        
+        if (localData != null && (now - lastFetch < CACHE_EXPIRY)) {
+            return
+        }
+
         try {
             val apiData = RetrofitClient.apiService.getDriverStats(driverId)
             val entity = DriverStatsEntity(
@@ -193,12 +228,23 @@ class FormulaRepository(private val database: FormulaDatabase) {
                 apiData.last_updated
             )
             driverStatsDao.insertStats(entity)
-        } catch (e: Exception) {}
+            fetchedDriverStats[driverId] = System.currentTimeMillis()
+        } catch (e: Exception) {
+            Log.e("FormulaRepository", "refreshDriverStats for $driverId failed", e)
+        }
     }
 
     fun getConstructorStats(constructorId: String): Flow<ConstructorStatsEntity?> = constructorStatsDao.getStats(constructorId)
 
     suspend fun refreshConstructorStats(constructorId: String) {
+        val now = System.currentTimeMillis()
+        val lastFetch = fetchedConstructorStats[constructorId] ?: 0L
+        val localData = constructorStatsDao.getStats(constructorId).firstOrNull()
+        
+        if (localData != null && (now - lastFetch < CACHE_EXPIRY)) {
+            return
+        }
+
         try {
             val apiData = RetrofitClient.apiService.getConstructorStats(constructorId)
             val entity = ConstructorStatsEntity(
@@ -222,12 +268,23 @@ class FormulaRepository(private val database: FormulaDatabase) {
                 apiData.last_updated
             )
             constructorStatsDao.insertStats(entity)
-        } catch (e: Exception) {}
+            fetchedConstructorStats[constructorId] = System.currentTimeMillis()
+        } catch (e: Exception) {
+            Log.e("FormulaRepository", "refreshConstructorStats for $constructorId failed", e)
+        }
     }
 
     fun getDriverSeasonStats(driverId: String): Flow<DriverSeasonStatsEntity?> = driverSeasonStatsDao.getStats(driverId)
 
     suspend fun refreshDriverSeasonStats(driverId: String) {
+        val now = System.currentTimeMillis()
+        val lastFetch = fetchedDriverSeasonStats[driverId] ?: 0L
+        val localData = driverSeasonStatsDao.getStats(driverId).firstOrNull()
+        
+        if (localData != null && (now - lastFetch < CACHE_EXPIRY)) {
+            return
+        }
+
         try {
             val apiData = RetrofitClient.apiService.getDriverSeasonStats(driverId)
             val entity = DriverSeasonStatsEntity(
@@ -259,12 +316,23 @@ class FormulaRepository(private val database: FormulaDatabase) {
                 apiData.last_updated
             )
             driverSeasonStatsDao.insertStats(entity)
-        } catch (e: Exception) {}
+            fetchedDriverSeasonStats[driverId] = System.currentTimeMillis()
+        } catch (e: Exception) {
+            Log.e("FormulaRepository", "refreshDriverSeasonStats for $driverId failed", e)
+        }
     }
 
     fun getConstructorSeasonStats(constructorId: String): Flow<ConstructorSeasonStatsEntity?> = constructorSeasonStatsDao.getStats(constructorId)
 
     suspend fun refreshConstructorSeasonStats(constructorId: String) {
+        val now = System.currentTimeMillis()
+        val lastFetch = fetchedConstructorSeasonStats[constructorId] ?: 0L
+        val localData = constructorSeasonStatsDao.getStats(constructorId).firstOrNull()
+        
+        if (localData != null && (now - lastFetch < CACHE_EXPIRY)) {
+            return
+        }
+
         try {
             val apiData = RetrofitClient.apiService.getConstructorSeasonStats(constructorId)
             val entity = ConstructorSeasonStatsEntity(
@@ -290,6 +358,9 @@ class FormulaRepository(private val database: FormulaDatabase) {
                 apiData.last_updated
             )
             constructorSeasonStatsDao.insertStats(entity)
-        } catch (e: Exception) {}
+            fetchedConstructorSeasonStats[constructorId] = System.currentTimeMillis()
+        } catch (e: Exception) {
+            Log.e("FormulaRepository", "refreshConstructorSeasonStats for $constructorId failed", e)
+        }
     }
 }

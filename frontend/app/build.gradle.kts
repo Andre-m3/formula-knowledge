@@ -16,6 +16,14 @@ android {
         versionCode = 1
         versionName = "1.0"
 
+        // Definiamo l'URL del backend per le diverse build
+        // buildConfigField("String", "API_BASE_URL", "\"http://10.0.2.2:8000/\"")
+        // Per testare su un dispositivo fisico, sostituisci con il tuo IP locale:
+        buildConfigField("String", "API_BASE_URL", "\"http://192.168.1.3:8000/\"")
+        // La stessa chiave impostata nel Backend Python
+        buildConfigField("String", "API_SECRET_KEY", "\"super_secret_formula_knowledge_key_2026!\"")
+
+
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
             useSupportLibrary = true
@@ -24,11 +32,13 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            // Per la release, usiamo l'URL di produzione (HTTPS)
+            buildConfigField("String", "API_BASE_URL", "\"https://api.yourdomain.com/\"")
         }
     }
     compileOptions {
@@ -36,6 +46,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_11
     }
     buildFeatures {
+        buildConfig = true
         compose = true
     }
     packaging {

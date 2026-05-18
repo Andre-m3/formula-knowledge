@@ -26,6 +26,8 @@ def add_stat(deltas, item_id, stat, amount=1):
     deltas[item_id][stat] += amount
 
 def update_best(deltas, item_id, stat_name, current_val_str, new_val_int):
+    if current_val_str is None:
+        current_val_str = "N/A"
     current_val = int(current_val_str) if current_val_str != "N/A" else 999
     if new_val_int < current_val:
         if f"{stat_name}_prev" not in deltas[item_id]:
@@ -49,7 +51,8 @@ def apply_revert(db, log: RoundProcessingLog):
                         original_field = k.replace("_prev", "")
                         setattr(obj, original_field, v)
                     elif not isinstance(v, str): # E' una addizione matematica, quindi sottraiamo
-                        setattr(obj, k, max(0, getattr(obj, k) - v)) # max 0 per sicurezza
+                        current = getattr(obj, k)
+                        setattr(obj, k, max(0, (current if current is not None else 0) - v)) # max 0 per sicurezza
 
     revert_model(DriverSeasonStats, log.driver_season_deltas, "driver_id", True)
     revert_model(DriverCareerStats, log.driver_career_deltas, "driver_id", False)
@@ -317,7 +320,8 @@ def update_round(round_number: int):
                 if isinstance(v, str): # field testo "best_"
                     setattr(obj, k, v)
                 else:
-                    setattr(obj, k, getattr(obj, k) + v)
+                    current = getattr(obj, k)
+                    setattr(obj, k, (current if current is not None else 0) + v)
 
     apply_and_save(DriverSeasonStats, ds_deltas, "driver_id", True)
     apply_and_save(DriverCareerStats, dc_deltas, "driver_id", False)

@@ -107,14 +107,23 @@ fun UpdatesScreen() {
     val nestedScrollConnection = remember {
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                if (available.y < -15) { isBottomBarVisible = false }
-                else if (available.y > 15) { isBottomBarVisible = true }
+                // Se l'utente sta scorrendo verso il basso (dito verso l'alto), nascondiamo la barra.
+                if (available.y < -3) {
+                    isBottomBarVisible = false
+                }
+                // Se l'utente sta scorrendo verso l'alto (dito verso il basso), mostriamo la barra.
+                // La soglia bassa (5) risolve il bug dello scroll lento.
+                if (available.y > 5) {
+                    isBottomBarVisible = true
+                }
                 return Offset.Zero
             }
             
             override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
-                // Se l'utente tenta di scorrere verso il basso ma ha raggiunto la fine della pagina (available.y negativo)
-                if (available.y < -10) { isBottomBarVisible = true }
+                // Se l'utente tenta di scorrere verso il basso ma ha raggiunto la fine della pagina,
+                // il delta "available" sarà negativo. In questo caso, mostriamo la barra.
+                // Questo risolve il bug per cui la barra non riappariva arrivati in fondo.
+                if (available.y < 0) { isBottomBarVisible = true }
                 return Offset.Zero
             }
         }

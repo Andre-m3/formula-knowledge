@@ -1,4 +1,5 @@
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, Security
+from fastapi.security.api_key import APIKeyHeader
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from pydantic import BaseModel
@@ -80,10 +81,19 @@ from .services.fia_scraper import FiaScraperService
 from .services.weather_service import WeatherService
 from .services.calendar_service import CalendarService
 from .services.external_api_service import ExternalApiService
+from .core.config import settings
 
 app = FastAPI(title="Formula Knowledge API")
 
 models.Base.metadata.create_all(bind=database.engine)
+
+# --- SECURITY ---
+api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+async def get_api_key(api_key_header: str = Security(api_key_header)):
+    if api_key_header != settings.API_SECRET_KEY:
+        raise HTTPException(status_code=403, detail="Non autorizzato: API Key mancante o non valida")
+    return api_key_header
 
 # --- SCHEMI ---
 
@@ -223,7 +233,7 @@ class DriverStatsResponseSchema(BaseModel):
 
 # --- ENDPOINTS ---
 
-@app.get("/api/v1/raceweek/current", response_model=RaceWeekResponse)
+@app.get("/api/v1/raceweek/current", response_model=RaceWeekResponse, dependencies=[Depends(get_api_key)])
 async def get_current_raceweek(db: Session = Depends(database.get_db)):
     calendar = CalendarService()
     weather = WeatherService()
@@ -267,7 +277,7 @@ async def get_current_raceweek(db: Session = Depends(database.get_db)):
         "sessions": sessions
     }
 
-@app.get("/api/v1/circuit/{round_number}", response_model=CircuitDetailResponse)
+@app.get("/api/v1/circuit/{round_number}", response_model=CircuitDetailResponse, dependencies=[Depends(get_api_key)])
 def get_circuit_details(round_number: int, db: Session = Depends(database.get_db)):
     race = db.query(models.Race).filter(models.Race.round_number == round_number).first()
     if not race:
@@ -322,7 +332,7 @@ def get_circuit_details(round_number: int, db: Session = Depends(database.get_db
         }
     }
 
-@app.get("/api/v1/results/{round_number}", response_model=List[RaceResultResponseSchema])
+@app.get("/api/v1/results/{round_number}", response_model=List[RaceResultResponseSchema], dependencies=[Depends(get_api_key)])
 def get_race_results(round_number: int, db: Session = Depends(database.get_db)):
     # 1. Cerchiamo i risultati nel DB locale (ordinati per posizione)
     db_results = db.query(models.RaceResult).join(models.Race).filter(models.Race.round_number == round_number).order_by(models.RaceResult.position).all()
@@ -362,7 +372,7 @@ def get_race_results(round_number: int, db: Session = Depends(database.get_db)):
         
     return [RaceResultResponseSchema(**data) for data in external_data]
 
-@app.get("/api/v1/standings/drivers", response_model=List[DriverStandingResponse])
+@app.get("/api/v1/standings/drivers", response_model=List[DriverStandingResponse], dependencies=[Depends(get_api_key)])
 def get_driver_standings(db: Session = Depends(database.get_db)):
     cached = db.query(models.DriverStandingCache).all()
     # Controlla se la cache non è vuota e se i dati sono di oggi
@@ -380,7 +390,7 @@ def get_driver_standings(db: Session = Depends(database.get_db)):
     db.commit()
     return [DriverStandingResponse(**data) for data in external_data]
 
-@app.get("/api/v1/standings/constructors", response_model=List[ConstructorStandingResponse])
+@app.get("/api/v1/standings/constructors", response_model=List[ConstructorStandingResponse], dependencies=[Depends(get_api_key)])
 def get_constructor_standings(db: Session = Depends(database.get_db)):
     cached = db.query(models.ConstructorStandingCache).all()
     # Controlla se la cache non è vuota e se i dati sono di oggi
@@ -418,12 +428,12 @@ def get_constructor_standings(db: Session = Depends(database.get_db)):
     db.commit()
     return enriched_results
 
-@app.get("/api/v1/calendar", response_model=List[CalendarEntryResponse])
+@app.get("/api/v1/calendar", response_model=List[CalendarEntryResponse], dependencies=[Depends(get_api_key)])
 def get_calendar():
     calendar = CalendarService()
     return calendar.get_full_calendar()
 
-@app.get("/api/v1/raceweek/updates", response_model=TeamUpdatesWrapperSchema)
+@app.get("/api/v1/raceweek/updates", response_model=TeamUpdatesWrapperSchema, dependencies=[Depends(get_api_key)])
 def get_latest_car_updates(db: Session = Depends(database.get_db)):
     calendar = CalendarService()
     current_race = calendar.get_current_or_next_race()
@@ -453,7 +463,7 @@ def get_latest_car_updates(db: Session = Depends(database.get_db)):
     db.commit()
     return TeamUpdatesWrapperSchema(status="ready", gp=result["gp"], data=final_data)
 
-@app.get("/api/v1/results/{round_number}/updates", response_model=List[TeamUpdatesResponse])
+@app.get("/api/v1/results/{round_number}/updates", response_model=List[TeamUpdatesResponse], dependencies=[Depends(get_api_key)])
 def get_past_gp_updates(round_number: int, db: Session = Depends(database.get_db)):
     updates = db.query(models.TechnicalUpdate).filter(models.TechnicalUpdate.race_id == round_number).all()
     if not updates:
@@ -466,7 +476,7 @@ def get_past_gp_updates(round_number: int, db: Session = Depends(database.get_db
         teams_dict[team_name]["updates"].append(up.description)
     return [TeamUpdatesResponse(team_name=k, team_color_hex=v["color"], updates=v["updates"]) for k, v in teams_dict.items()]
 
-@app.get("/api/v1/drivers/{driver_id}/stats", response_model=DriverStatsResponseSchema)
+@app.get("/api/v1/drivers/{driver_id}/stats", response_model=DriverStatsResponseSchema, dependencies=[Depends(get_api_key)])
 def get_driver_stats(driver_id: str, db: Session = Depends(database.get_db)):
     # Nessuna chiamata esterna! Risposta fulminea grazie all'Internal Aggregator.
     stats = db.query(models.DriverCareerStats).filter(models.DriverCareerStats.driver_id == driver_id).first()
@@ -474,21 +484,21 @@ def get_driver_stats(driver_id: str, db: Session = Depends(database.get_db)):
         raise HTTPException(status_code=404, detail="Driver stats not found")
     return stats
 
-@app.get("/api/v1/constructors/{constructor_id}/stats", response_model=ConstructorStatsResponseSchema)
+@app.get("/api/v1/constructors/{constructor_id}/stats", response_model=ConstructorStatsResponseSchema, dependencies=[Depends(get_api_key)])
 def get_constructor_stats(constructor_id: str, db: Session = Depends(database.get_db)):
     stats = db.query(models.ConstructorCareerStats).filter(models.ConstructorCareerStats.constructor_id == constructor_id).first()
     if not stats:
         raise HTTPException(status_code=404, detail="Constructor stats not found")
     return stats
 
-@app.get("/api/v1/drivers/{driver_id}/season_stats", response_model=DriverSeasonStatsResponseSchema)
+@app.get("/api/v1/drivers/{driver_id}/season_stats", response_model=DriverSeasonStatsResponseSchema, dependencies=[Depends(get_api_key)])
 def get_driver_season_stats(driver_id: str, db: Session = Depends(database.get_db)):
     stats = db.query(models.DriverSeasonStats).filter(models.DriverSeasonStats.driver_id == driver_id, models.DriverSeasonStats.year == 2026).first()
     if not stats:
         raise HTTPException(status_code=404, detail="Driver season stats not found")
     return stats
 
-@app.get("/api/v1/constructors/{constructor_id}/season_stats", response_model=ConstructorSeasonStatsResponseSchema)
+@app.get("/api/v1/constructors/{constructor_id}/season_stats", response_model=ConstructorSeasonStatsResponseSchema, dependencies=[Depends(get_api_key)])
 def get_constructor_season_stats(constructor_id: str, db: Session = Depends(database.get_db)):
     stats = db.query(models.ConstructorSeasonStats).filter(models.ConstructorSeasonStats.constructor_id == constructor_id, models.ConstructorSeasonStats.year == 2026).first()
     if not stats:

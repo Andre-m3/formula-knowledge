@@ -1,24 +1,29 @@
 package com.formulaknowledge.app.data
 
+import com.formulaknowledge.app.BuildConfig
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
+import okhttp3.Interceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.util.concurrent.TimeUnit
 
 object RetrofitClient {
-    /**
-     * - EMULATORE Android Studio: "http://10.0.2.2:8000/"
-     * - DISPOSITIVO FISICO: ip fisico (ricorda dhcp)
-     */
-    private const val BASE_URL = "http://192.168.1.3:8000/"
 
     private val logging = HttpLoggingInterceptor().apply {
         level = HttpLoggingInterceptor.Level.BODY
     }
 
+    private val authInterceptor = Interceptor { chain ->
+        val newRequest = chain.request().newBuilder()
+            .addHeader("X-API-Key", BuildConfig.API_SECRET_KEY)
+            .build()
+        chain.proceed(newRequest)
+    }
+
     private val okHttpClient = OkHttpClient.Builder()
         .addInterceptor(logging)
+        .addInterceptor(authInterceptor)
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .writeTimeout(15, TimeUnit.SECONDS)
@@ -26,7 +31,7 @@ object RetrofitClient {
 
     val apiService: F1ApiService by lazy {
         Retrofit.Builder()
-            .baseUrl(BASE_URL)
+            .baseUrl(BuildConfig.API_BASE_URL)
             .client(okHttpClient)
             .addConverterFactory(GsonConverterFactory.create())
             .build()
