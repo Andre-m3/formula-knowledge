@@ -86,6 +86,16 @@ class ConstructorStandingCache(Base):
     wins = Column(Integer)
     last_updated = Column(Date)
 
+class RoundProcessingLog(Base):
+    __tablename__ = "round_processing_logs"
+    id = Column(Integer, primary_key=True, index=True)
+    round_number = Column(Integer, nullable=False, unique=True)
+    year = Column(Integer, nullable=False)
+    driver_season_deltas = Column(String, nullable=False)
+    driver_career_deltas = Column(String, nullable=False)
+    constructor_season_deltas = Column(String, nullable=False)
+    constructor_career_deltas = Column(String, nullable=False)
+
 class RaceResult(Base):
     __tablename__ = "race_results"
     id = Column(Integer, primary_key=True, index=True)
