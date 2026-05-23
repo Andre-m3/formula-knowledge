@@ -18,6 +18,24 @@ object F1Utils {
         }
     }
 
+    fun getConstructorIdForStats(fullName: String): String {
+        val lower = fullName.lowercase()
+        return when {
+            lower.contains("mercedes") -> "mercedes"
+            lower.contains("ferrari") -> "ferrari"
+            lower.contains("red bull") || lower.contains("redbull") -> "red_bull"
+            lower.contains("mclaren") -> "mclaren"
+            lower.contains("aston") -> "aston_martin"
+            lower.contains("alpine") -> "alpine"
+            lower.contains("williams") -> "williams"
+            lower.contains("racing bulls") || lower.contains("rb") || lower.contains("alphatauri") -> "rb"
+            lower.contains("haas") -> "haas"
+            lower.contains("audi") || lower.contains("sauber") || lower.contains("alfa") -> "audi"
+            lower.contains("cadillac") -> "cadillac"
+            else -> lower.replace(" ", "_")
+        }
+    }
+
     fun getTeamColor(teamName: String?): Color {
         val lower = teamName?.lowercase() ?: return Color.Gray
         return when {

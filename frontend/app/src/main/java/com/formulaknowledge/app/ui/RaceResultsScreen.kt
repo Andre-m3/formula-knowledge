@@ -45,19 +45,45 @@ import com.formulaknowledge.app.data.FormulaRepository
 fun RaceResultsScreen(
     roundNumber: Int, 
     gpName: String,
+    sessionType: String,
     onDriverClick: (String) -> Unit = {}
 ) {
     val context = LocalContext.current
     val database = remember { FormulaDatabase.getDatabase(context) }
     val repository = remember { FormulaRepository(database) }
 
-    val resultsEntities by repository.getRaceResults(roundNumber).collectAsState(initial = emptyList())
-    val results = resultsEntities.map { RaceResultResponse(it.position, it.driver, it.team, it.points, it.time) }
+    val resultsEntities by repository.getRaceResults(roundNumber, sessionType).collectAsState(initial = emptyList())
+    val rawResults = resultsEntities.map { RaceResultResponse(it.position, it.driver, it.team, it.points, it.time, it.q1, it.q2, it.q3) }
     
-    val isLoading = results.isEmpty()
+    var selectedQTab by remember { mutableStateOf("") }
+    
+    val results = remember(rawResults, selectedQTab, sessionType) {
+        if (sessionType == "quali" || sessionType == "sprint_shootout") {
+            rawResults.filter { res ->
+                when (selectedQTab) {
+                    "Q1", "SQ1" -> !res.q1.isNullOrBlank()
+                    "Q2", "SQ2" -> !res.q2.isNullOrBlank()
+                    "Q3", "SQ3" -> !res.q3.isNullOrBlank()
+                    else -> true
+                }
+            }.map { res ->
+                val specificTime = when (selectedQTab) {
+                    "Q1", "SQ1" -> res.q1
+                    "Q2", "SQ2" -> res.q2
+                    "Q3", "SQ3" -> res.q3
+                    else -> res.time
+                } ?: res.time
+                res.copy(time = specificTime)
+            }
+        } else {
+            rawResults
+        }
+    }
 
-    LaunchedEffect(roundNumber) {
-        repository.refreshRaceResults(roundNumber)
+    val isLoading = rawResults.isEmpty()
+
+    LaunchedEffect(roundNumber, sessionType) {
+        repository.refreshRaceResults(roundNumber, sessionType)
     }
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
@@ -110,15 +136,22 @@ fun RaceResultsScreen(
                 }
             }
 
+            val titleText = when (sessionType) {
+                "sprint_shootout" -> "SPRINT QUALI\nRESULTS"
+                "quali" -> "QUALI\nRESULTS"
+                "sprint" -> "SPRINT\nRESULTS"
+                else -> "RACE\nRESULTS"
+            }
+
             Column {
                 Text(
-                    text = "RACE\nRESULTS",
+                    text = titleText,
                     color = Color.White,
-                    fontSize = 54.sp,
+                    fontSize = if (sessionType == "sprint_shootout") 48.sp else 54.sp,
                     fontWeight = FontWeight.Black,
                     fontStyle = FontStyle.Italic,
                     letterSpacing = (-3).sp,
-                    lineHeight = 44.sp
+                    lineHeight = if (sessionType == "sprint_shootout") 42.sp else 44.sp
                 )
                 Text(
                     text = "${gpName.uppercase().replace(" GRAND PRIX", "")} GP",
@@ -134,6 +167,25 @@ fun RaceResultsScreen(
 
         Spacer(modifier = Modifier.height(24.dp))
 
+        // --- TABS PER LE QUALIFICHE ---
+        if (sessionType == "quali" || sessionType == "sprint_shootout") {
+            val qTabs = if (sessionType == "quali") listOf("Q1", "Q2", "Q3") else listOf("SQ1", "SQ2", "SQ3")
+            LaunchedEffect(Unit) {
+                if (selectedQTab.isBlank()) selectedQTab = qTabs.last()
+            }
+            
+            Row(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp), horizontalArrangement = Arrangement.Center) {
+                Row(modifier = Modifier.background(Color.White.copy(alpha = 0.04f), RoundedCornerShape(12.dp)).padding(4.dp)) {
+                    qTabs.forEach { tab ->
+                        val isSelected = selectedQTab == tab
+                        Box(modifier = Modifier.background(if (isSelected) Color(0xFF00FFCC).copy(alpha = 0.15f) else Color.Transparent, RoundedCornerShape(8.dp)).clickable { selectedQTab = tab }.padding(horizontal = 24.dp, vertical = 8.dp)) {
+                            Text(tab, color = if (isSelected) Color(0xFF00FFCC) else Color.White.copy(alpha = 0.4f), fontWeight = FontWeight.Black)
+                        }
+                    }
+                }
+            }
+        }
+
         if (isLoading) {
             Column {
                 ShimmerPodiumHorizontalCard(height = 86.dp)
@@ -145,12 +197,19 @@ fun RaceResultsScreen(
                 repeat(7) { ShimmerResultRow() }
             }
         } else {
-            val podiumResults = results.take(3)
-            val otherResults = results.drop(3)
+            // Se è una Qualifica mostriamo solo 1 vincitore (Poleman). Se gara/sprint i 3 a podio.
+            val inFocusCount = if (sessionType == "quali" || sessionType == "sprint_shootout") 1 else 3
+            val focusResults = results.take(inFocusCount)
+            val otherResults = results.drop(inFocusCount)
 
             LazyColumn(contentPadding = PaddingValues(bottom = 120.dp)) {
                 item {
-                    PodiumList(podiumResults, onDriverClick)
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        val colors = listOf(Color(0xFFFFD700), Color(0xFFC0C0C0), Color(0xFFCD7F32))
+                        focusResults.forEachIndexed { index, res ->
+                            PodiumHorizontalCard(res, colors.getOrElse(index) { Color.White }, onDriverClick)
+                        }
+                    }
                     Spacer(modifier = Modifier.height(12.dp))
                 }
 
@@ -159,19 +218,6 @@ fun RaceResultsScreen(
                 }
             }
         }
-    }
-}
-
-@Composable
-fun PodiumList(results: List<RaceResultResponse>, onDriverClick: (String) -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        val p1 = results.find { it.position == 1 }
-        val p2 = results.find { it.position == 2 }
-        val p3 = results.find { it.position == 3 }
-
-        p1?.let { PodiumHorizontalCard(it, Color(0xFFFFD700), onDriverClick) }
-        p2?.let { PodiumHorizontalCard(it, Color(0xFFC0C0C0), onDriverClick) }
-        p3?.let { PodiumHorizontalCard(it, Color(0xFFCD7F32), onDriverClick) }
     }
 }
 

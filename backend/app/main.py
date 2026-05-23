@@ -177,6 +177,9 @@ class RaceResultResponseSchema(BaseModel):
     team: str
     points: int
     time: str
+    q1: Optional[str] = None
+    q2: Optional[str] = None
+    q3: Optional[str] = None
 
 class CircuitDetailResponse(BaseModel):
     round: int
@@ -332,10 +335,10 @@ def get_circuit_details(round_number: int, db: Session = Depends(database.get_db
         }
     }
 
-@app.get("/api/v1/results/{round_number}", response_model=List[RaceResultResponseSchema], dependencies=[Depends(get_api_key)])
-def get_race_results(round_number: int, db: Session = Depends(database.get_db)):
-    # 1. Cerchiamo i risultati nel DB locale (ordinati per posizione)
-    db_results = db.query(models.RaceResult).join(models.Race).filter(models.Race.round_number == round_number).order_by(models.RaceResult.position).all()
+@app.get("/api/v1/results/{round_number}/{session_type}", response_model=List[RaceResultResponseSchema], dependencies=[Depends(get_api_key)])
+def get_session_results(round_number: int, session_type: str, db: Session = Depends(database.get_db)):
+    # 1. Cerchiamo i risultati nel DB locale
+    db_results = db.query(models.RaceResult).join(models.Race).filter(models.Race.round_number == round_number, models.RaceResult.session_type == session_type).order_by(models.RaceResult.position).all()
     if db_results:
         return [
             {
@@ -343,12 +346,15 @@ def get_race_results(round_number: int, db: Session = Depends(database.get_db)):
                 "driver": f"{r.driver.first_name} {r.driver.last_name}",
                 "team": r.driver.team.name,
                 "points": int(r.points),
-                "time": r.time_str or ""
+                "time": r.time_str or "",
+                "q1": r.q1,
+                "q2": r.q2,
+                "q3": r.q3
             } for r in db_results
         ]
     
-    # 2. Se non ci sono nel DB (gara mai caricata prima), chiamiamo Jolpica
-    external_data = ExternalApiService.get_race_results(round_number, year=2026)
+    # 2. Se non ci sono nel DB (sessione mai caricata prima), chiamiamo Jolpica
+    external_data = ExternalApiService.get_session_results(round_number, session_type, year=2026)
     
     # 3. Salviamo nel DB per fare da cache persistente
     race = db.query(models.Race).filter(models.Race.round_number == round_number).first()
@@ -366,7 +372,15 @@ def get_race_results(round_number: int, db: Session = Depends(database.get_db)):
                     break
                     
             if db_driver:
-                new_result = models.RaceResult(race_id=race.id, driver_id=db_driver.id, position=data["position"], points=data["points"], time_str=data["time"])
+                new_result = models.RaceResult(
+                    race_id=race.id, 
+                    driver_id=db_driver.id, 
+                    position=data["position"], 
+                    points=data["points"], 
+                    time_str=data["time"],
+                    q1=data.get("q1"), q2=data.get("q2"), q3=data.get("q3"),
+                    session_type=session_type
+                )
                 db.add(new_result)
         db.commit()
         

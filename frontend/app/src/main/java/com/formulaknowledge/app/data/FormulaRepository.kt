@@ -26,6 +26,10 @@ class FormulaRepository(private val database: FormulaDatabase) {
     companion object {
         // Variabili in memoria CONDIVISE per evitare di spammare chiamate di rete tra le schermate
         private var lastStandingsFetch = 0L
+        private var lastCalendarFetch = 0L
+        private var lastCurrentRaceWeekFetch = 0L
+        private val fetchedCircuitDetails = mutableMapOf<Int, Long>()
+        private val fetchedRaceResults = mutableMapOf<String, Long>()
         private val fetchedDriverStats = mutableMapOf<String, Long>()
         private val fetchedDriverSeasonStats = mutableMapOf<String, Long>()
         private val fetchedConstructorStats = mutableMapOf<String, Long>()
@@ -59,13 +63,23 @@ class FormulaRepository(private val database: FormulaDatabase) {
             dao.updateDriverStandings(driverEntities)
             dao.updateConstructorStandings(constructorEntities)
 
-            // Pre-fetch silente: scarichiamo in background le statistiche dei piloti
+            // Pre-fetch silente: scarichiamo in background le statistiche in modo sequenziale e ordinato
             coroutineScope {
-                apiDrivers.forEach { driver ->
-                    launch {
-                        // Il controllo TTL è ora DENTRO refreshDriverStats, quindi possiamo chiamarlo in sicurezza.
+                launch {
+                    apiDrivers.forEach { driver ->
                         val driverId = F1Utils.getDriverIdFromName(driver.driver_name)
+                        // Prima le statistiche stagionali, poi quelle all-time
+                        refreshDriverSeasonStats(driverId)
                         refreshDriverStats(driverId)
+                    }
+                }
+                launch {
+                    apiConstructors.forEach { constructor ->
+                        // Pre-fetch delle statistiche complete anche per i Costruttori!
+                        val constructorId = F1Utils.getConstructorIdForStats(constructor.constructor_name)
+                        // Prima le statistiche stagionali, poi quelle all-time
+                        refreshConstructorSeasonStats(constructorId)
+                        refreshConstructorStats(constructorId)
                     }
                 }
             }
@@ -81,9 +95,16 @@ class FormulaRepository(private val database: FormulaDatabase) {
 
     fun getCircuitDetail(round: Int): Flow<CircuitDetailEntity?> = raceDao.getCircuitDetail(round)
     
-    fun getRaceResults(round: Int): Flow<List<RaceResultEntity>> = raceDao.getRaceResults(round)
+    fun getRaceResults(round: Int, sessionType: String): Flow<List<RaceResultEntity>> = raceDao.getRaceResults(round, sessionType)
 
     suspend fun refreshCircuitDetail(round: Int) {
+        val now = System.currentTimeMillis()
+        val lastFetch = fetchedCircuitDetails[round] ?: 0L
+        val localData = raceDao.getCircuitDetail(round).firstOrNull()
+        
+        if (localData != null && (now - lastFetch < CACHE_EXPIRY)) {
+            return
+        }
         try {
             val apiData = RetrofitClient.apiService.getCircuitDetails(round)
             val existingCircuit = raceDao.getCircuitDetail(round).firstOrNull()
@@ -107,18 +128,28 @@ class FormulaRepository(private val database: FormulaDatabase) {
                 fp1, fp2, fp3, sprintShootout, sprintRace, quali, race
             )
             raceDao.insertCircuitDetail(entity)
+            fetchedCircuitDetails[round] = System.currentTimeMillis()
         } catch (e: Exception) {
             Log.e("FormulaRepository", "refreshCircuitDetail for round $round failed", e)
         }
     }
 
-    suspend fun refreshRaceResults(round: Int) {
+    suspend fun refreshRaceResults(round: Int, sessionType: String) {
+        val now = System.currentTimeMillis()
+        val cacheKey = "${round}_$sessionType"
+        val lastFetch = fetchedRaceResults[cacheKey] ?: 0L
+        val localData = raceDao.getRaceResults(round, sessionType).firstOrNull()
+        
+        if (!localData.isNullOrEmpty() && (now - lastFetch < CACHE_EXPIRY)) {
+            return
+        }
         try {
-            val apiData = RetrofitClient.apiService.getResults(round)
-            val entities = apiData.map { RaceResultEntity(0, round, it.position, it.driver, it.team, it.points, it.time) }
-            raceDao.updateRaceResults(round, entities)
+            val apiData = RetrofitClient.apiService.getSessionResults(round, sessionType)
+            val entities = apiData.map { RaceResultEntity(0, round, sessionType, it.position, it.driver, it.team, it.points, it.time, it.q1, it.q2, it.q3) }
+            raceDao.updateRaceResults(round, sessionType, entities)
+            fetchedRaceResults[cacheKey] = System.currentTimeMillis()
         } catch (e: Exception) {
-            Log.e("FormulaRepository", "refreshRaceResults for round $round failed", e)
+            Log.e("FormulaRepository", "refreshRaceResults for round $round, session $sessionType failed", e)
         }
     }
 
@@ -126,6 +157,11 @@ class FormulaRepository(private val database: FormulaDatabase) {
     val currentRaceWeek: Flow<RaceWeekEntity?> = generalDao.getCurrentRaceWeek()
 
     suspend fun refreshCalendar() {
+        val now = System.currentTimeMillis()
+        val localCalendar = generalDao.getCalendar().firstOrNull()
+        if (!localCalendar.isNullOrEmpty() && (now - lastCalendarFetch < CACHE_EXPIRY)) {
+            return
+        }
         try {
             val apiData = RetrofitClient.apiService.getCalendar()
             val entities = apiData.map {
@@ -148,23 +184,27 @@ class FormulaRepository(private val database: FormulaDatabase) {
                         
                         // Pre-carica i risultati solo per le gare passate (se mancano)
                         if (race.status == "past") {
-                            val existingResults = raceDao.getRaceResults(race.round).firstOrNull()
+                            val existingResults = raceDao.getRaceResults(race.round, "race").firstOrNull()
                             if (existingResults.isNullOrEmpty()) {
-                                refreshRaceResults(race.round)
+                                refreshRaceResults(race.round, "race")
                             }
                         }
                     }
                 }
             }
+            lastCalendarFetch = System.currentTimeMillis()
         } catch (e: Exception) {
             Log.e("FormulaRepository", "refreshCalendar failed", e)
         }
     }
 
     suspend fun refreshCurrentRaceWeek() {
+        val now = System.currentTimeMillis()
+        val existingData = currentRaceWeek.firstOrNull()
+        if (existingData != null && (now - lastCurrentRaceWeekFetch < CACHE_EXPIRY)) {
+            return
+        }
         try {
-            val existingData = currentRaceWeek.firstOrNull()
-            val now = System.currentTimeMillis()
 
             // Richiediamo sempre dati freschi all'API all'avvio.
             // Non c'è rischio di spam perché il Backend Python usa una cache di 30 minuti!
@@ -177,6 +217,7 @@ class FormulaRepository(private val database: FormulaDatabase) {
                 apiData.sessions.sprint_shootout, apiData.sessions.sprint_race, apiData.sessions.quali, apiData.sessions.race
             )
             generalDao.insertRaceWeek(entity)
+            lastCurrentRaceWeekFetch = System.currentTimeMillis()
         } catch (e: Exception) {
             Log.e("FormulaRepository", "refreshCurrentRaceWeek failed", e)
             /* Ignoriamo l'errore, la UI gestirà i dati vecchi/assenti */ }

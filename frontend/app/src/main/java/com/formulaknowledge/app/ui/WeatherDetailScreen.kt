@@ -52,16 +52,17 @@ fun WeatherDetailScreen(raceWeek: RaceWeekResponse?, raceWeekEntity: com.formula
          )
          val cityName = raceWeek?.gp_name?.uppercase()?.replace(" GRAND PRIX", "") ?: "CIRCUIT"
          Text(
-             text = "$cityName FORECAST",
+             text = "$cityName\nFORECAST",
              color = Color(0xFF00FFCC),
              fontSize = 38.sp,
              fontWeight = FontWeight.Black,
              fontStyle = FontStyle.Italic,
              letterSpacing = (-2).sp,
+             lineHeight = 34.sp,
              modifier = Modifier.offset(y = (-10).dp)
          )
  
-         Spacer(modifier = Modifier.height(24.dp))
+         Spacer(modifier = Modifier.height(16.dp))
  
          if (weather != null) {
              MainWeatherCard(weather)
@@ -110,7 +111,7 @@ fun MainWeatherCard(weather: com.formulaknowledge.app.data.WeatherForecast?) {
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(28.dp),
         color = Color(0xFF1E0A0A).copy(alpha = 0.6f),
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF00FFCC).copy(alpha = 0.3f))
+        border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF00FFCC).copy(alpha = 0.6f))
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 24.dp, vertical = 20.dp),
@@ -166,7 +167,7 @@ fun WeatherInfoChip(icon: ImageVector, text: String, color: Color) {
 @Composable
 fun DailyForecastRow(forecast: DailyForecast) {
     Row(
-        modifier = Modifier.fillMaxWidth().height(54.dp).padding(horizontal = 20.dp),
+        modifier = Modifier.fillMaxWidth().height(44.dp).padding(horizontal = 20.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(text = forecast.day.uppercase().take(3), color = Color.White, fontWeight = FontWeight.Black, fontSize = 14.sp, modifier = Modifier.width(45.dp))

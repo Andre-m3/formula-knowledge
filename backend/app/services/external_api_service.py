@@ -175,13 +175,25 @@ class ExternalApiService:
             return []
 
     @classmethod
-    def get_race_results(cls, round_number: int, year: int = 2026):
-        cache_key = f"race_results_{year}_{round_number}"
+    def get_session_results(cls, round_number: int, session_type: str, year: int = 2026):
+        cache_key = f"session_results_{year}_{round_number}_{session_type}"
         cached = cls._get_cached(cache_key)
         if cached:
             return cached
 
-        url = f"https://api.jolpi.ca/ergast/f1/{year}/{round_number}/results.json"
+        if session_type == "race":
+            url = f"https://api.jolpi.ca/ergast/f1/{year}/{round_number}/results.json"
+            result_key = "Results"
+        elif session_type == "sprint":
+            url = f"https://api.jolpi.ca/ergast/f1/{year}/{round_number}/sprint.json"
+            result_key = "SprintResults"
+        elif session_type == "quali":
+            url = f"https://api.jolpi.ca/ergast/f1/{year}/{round_number}/qualifying.json"
+            result_key = "QualifyingResults"
+        else:
+            # sprint_shootout non e' sempre supportato in tutte le stagioni, gestiamo il placeholder
+            return []
+
         try:
             response = requests.get(url, timeout=5)
             response.raise_for_status()
@@ -191,25 +203,34 @@ class ExternalApiService:
             if not race_table:
                 return []
 
-            results_data = race_table[0].get("Results", [])
+            results_data = race_table[0].get(result_key, [])
 
             results = []
             for item in results_data:
-                # Gestione sicura del tempo (chi si ritira non ha un tempo)
-                time_obj = item.get("Time", {})
-                time_str = time_obj.get("time", item.get("status", ""))
-
                 # Pulizia nome Kimi Antonelli
                 driver_name = f"{item['Driver']['givenName']} {item['Driver']['familyName']}"
                 if driver_name == "Andrea Kimi Antonelli":
                     driver_name = "Kimi Antonelli"
 
+                if session_type in ["race", "sprint"]:
+                    time_obj = item.get("Time", {})
+                    time_str = time_obj.get("time", item.get("status", ""))
+                    points = int(float(item.get("points", 0)))
+                    q1 = q2 = q3 = None
+                else:
+                    time_str = item.get("Q3", item.get("Q2", item.get("Q1", "")))
+                    q1 = item.get("Q1")
+                    q2 = item.get("Q2")
+                    q3 = item.get("Q3")
+                    points = 0
+
                 results.append({ # type: ignore
                     "position": int(item["position"]),
                     "driver": driver_name,
                     "team": item["Constructor"]["name"],
-                    "points": int(float(item["points"])),
-                    "time": time_str
+                    "points": points,
+                    "time": time_str,
+                    "q1": q1, "q2": q2, "q3": q3
                 })
 
             cls._set_cache(cache_key, results)

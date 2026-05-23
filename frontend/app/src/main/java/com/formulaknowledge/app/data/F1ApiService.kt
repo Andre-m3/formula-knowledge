@@ -13,8 +13,8 @@ interface F1ApiService {
     @GET("api/v1/calendar")
     suspend fun getCalendar(): List<CalendarResponse>
 
-    @GET("api/v1/results/{round_number}")
-    suspend fun getResults(@Path("round_number") round: Int): List<RaceResultResponse>
+    @GET("api/v1/results/{round_number}/{session_type}")
+    suspend fun getSessionResults(@Path("round_number") round: Int, @Path("session_type") sessionType: String): List<RaceResultResponse>
 
     @GET("api/v1/results/{round_number}/updates")
     suspend fun getPastGpUpdates(@Path("round_number") round: Int): List<TeamUpdatesResponse>

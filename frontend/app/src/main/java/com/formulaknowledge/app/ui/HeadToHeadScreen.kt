@@ -318,8 +318,8 @@ fun HeadToHeadConstructorScreen(
     val c2SeasonFlow = remember(currentConstructor2Id) { currentConstructor2Id?.let { repository.getConstructorSeasonStats(it) } ?: flowOf(null) }
     val c2Season by c2SeasonFlow.collectAsState(initial = null)
 
-    val constructor1Standing = standings.find { getConstructorIdForStats(it.constructor_name) == currentConstructor1Id }
-    val constructor2Standing = currentConstructor2Id?.let { id -> standings.find { getConstructorIdForStats(it.constructor_name) == id } }
+    val constructor1Standing = standings.find { F1Utils.getConstructorIdForStats(it.constructor_name) == currentConstructor1Id }
+    val constructor2Standing = currentConstructor2Id?.let { id -> standings.find { F1Utils.getConstructorIdForStats(it.constructor_name) == id } }
 
     val color1 = F1Utils.getTeamColor(constructor1Standing?.constructor_name)
     val color2 = currentConstructor2Id?.let { F1Utils.getTeamColor(constructor2Standing?.constructor_name) } ?: Color.DarkGray
@@ -514,16 +514,16 @@ fun HeadToHeadConstructorScreen(
                 Text(if (selectingConstructor == 1) "Seleziona Scuderia 1" else "Seleziona Scuderia 2", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 16.dp))
                 LazyColumn {
                     val otherConstructorId = if (selectingConstructor == 1) currentConstructor2Id else currentConstructor1Id
-                    items(standings.filter { getConstructorIdForStats(it.constructor_name) != otherConstructorId }) { standing ->
+                    items(standings.filter { F1Utils.getConstructorIdForStats(it.constructor_name) != otherConstructorId }) { standing ->
                         val teamCol = F1Utils.getTeamColor(standing.constructor_name)
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable { 
                                     if (selectingConstructor == 1) {
-                                        currentConstructor1Id = getConstructorIdForStats(standing.constructor_name)
+                                        currentConstructor1Id = F1Utils.getConstructorIdForStats(standing.constructor_name)
                                     } else {
-                                        currentConstructor2Id = getConstructorIdForStats(standing.constructor_name)
+                                        currentConstructor2Id = F1Utils.getConstructorIdForStats(standing.constructor_name)
                                     }
                                     showBottomSheet = false 
                                 }
@@ -532,7 +532,7 @@ fun HeadToHeadConstructorScreen(
                         ) {
                             Surface(color = teamCol, shape = CircleShape, modifier = Modifier.size(12.dp)) {}
                             Spacer(modifier = Modifier.width(16.dp))
-                            Text(getConstructorDisplayName(getConstructorIdForStats(standing.constructor_name)), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.weight(1f))
+                            Text(getConstructorDisplayName(F1Utils.getConstructorIdForStats(standing.constructor_name)), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.weight(1f))
                             Text(standing.chassis_name ?: "", color = Color.Gray, fontSize = 12.sp)
                         }
                     }

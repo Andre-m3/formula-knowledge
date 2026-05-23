@@ -57,11 +57,15 @@ data class CircuitDetailEntity(
 data class RaceResultEntity(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
     val round_number: Int,
+    val session_type: String,
     val position: Int,
     val driver: String,
     val team: String,
     val points: Int,
-    val time: String
+    val time: String,
+    val q1: String? = null,
+    val q2: String? = null,
+    val q3: String? = null
 )
 
 @Entity(tableName = "calendar_entries")
@@ -254,18 +258,18 @@ interface RaceDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertCircuitDetail(circuit: CircuitDetailEntity)
 
-    @Query("SELECT * FROM race_results WHERE round_number = :round ORDER BY position ASC")
-    fun getRaceResults(round: Int): Flow<List<RaceResultEntity>>
+    @Query("SELECT * FROM race_results WHERE round_number = :round AND session_type = :sessionType ORDER BY position ASC")
+    fun getRaceResults(round: Int, sessionType: String): Flow<List<RaceResultEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertRaceResults(results: List<RaceResultEntity>)
 
-    @Query("DELETE FROM race_results WHERE round_number = :round")
-    suspend fun clearRaceResults(round: Int)
+    @Query("DELETE FROM race_results WHERE round_number = :round AND session_type = :sessionType")
+    suspend fun clearRaceResults(round: Int, sessionType: String)
 
     @Transaction
-    suspend fun updateRaceResults(round: Int, results: List<RaceResultEntity>) {
-        clearRaceResults(round)
+    suspend fun updateRaceResults(round: Int, sessionType: String, results: List<RaceResultEntity>) {
+        clearRaceResults(round, sessionType)
         insertRaceResults(results)
     }
 }
@@ -334,7 +338,7 @@ interface ConstructorSeasonStatsDao {
 
 @Database(
     entities = [DriverStandingEntity::class, ConstructorStandingEntity::class, CircuitDetailEntity::class, RaceResultEntity::class, CalendarEntity::class, RaceWeekEntity::class, DriverStatsEntity::class, ConstructorStatsEntity::class, DriverSeasonStatsEntity::class, ConstructorSeasonStatsEntity::class],
-    version = 18,
+    version = 19,
     exportSchema = false
 )
 abstract class FormulaDatabase : RoomDatabase() {

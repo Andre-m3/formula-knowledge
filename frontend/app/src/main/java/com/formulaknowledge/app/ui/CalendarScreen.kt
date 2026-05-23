@@ -131,7 +131,7 @@ fun CalendarRaceCard(race: CalendarResponse, onClick: () -> Unit) {
                 lineHeight = 13.sp
             )
             Text(
-                text = race.name.uppercase(),
+                text = race.name.uppercase().replace("UNITED STATES GRAND PRIX", "UNITED STATES GP"),
                 color = if (isCancelled) Color.White.copy(alpha = 0.2f) else if (isPast || isCurrent) Color.White else Color.White.copy(alpha = 0.3f),
                 fontSize = 19.sp, 
                 fontWeight = FontWeight.ExtraBold,

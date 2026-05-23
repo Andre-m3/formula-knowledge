@@ -73,10 +73,10 @@ fun getSessionStatus(sessionDay: String, sessionTimeLocal: String, gpStatus: Str
 }
 
 @Composable
-fun RaceSessionsScreen(isSprint: Boolean, gpName: String, country: String, sessions: SessionTimes?, gpStatus: String, dates: List<String>) {
+fun RaceSessionsScreen(isSprint: Boolean, gpName: String, country: String, sessions: SessionTimes?, gpStatus: String, dates: List<String>, onNavigateToResults: (String) -> Unit) {
     val context = LocalContext.current
     var showOngoingDialog by remember { mutableStateOf(false) }
-    var showConcludedDialog by remember { mutableStateOf(false) }
+    var showPracticeDialog by remember { mutableStateOf(false) }
 
     val sessionsList = remember(isSprint, sessions) {
         val list = mutableListOf<SessionInfo>()
@@ -230,7 +230,19 @@ fun RaceSessionsScreen(isSprint: Boolean, gpName: String, country: String, sessi
                                 context.startActivity(intent)
                             }
                             SessionStatus.ONGOING -> { showOngoingDialog = true }
-                            SessionStatus.CONCLUDED -> { showConcludedDialog = true }
+                            SessionStatus.CONCLUDED -> { 
+                                if (session.name.contains("PRACTICE")) {
+                                    showPracticeDialog = true
+                                } else {
+                                    val type = when {
+                                        session.name.contains("SPRINT QUALI") -> "sprint_shootout"
+                                        session.name.contains("QUALIFYING") -> "quali"
+                                        session.name.contains("SPRINT RACE") -> "sprint"
+                                        else -> "race"
+                                    }
+                                    onNavigateToResults(type) 
+                                }
+                            }
                         }
                     }
                 }
@@ -247,13 +259,13 @@ fun RaceSessionsScreen(isSprint: Boolean, gpName: String, country: String, sessi
             )
         }
 
-        if (showConcludedDialog) {
+        if (showPracticeDialog) {
             AlertDialog(
-                onDismissRequest = { showConcludedDialog = false },
+                onDismissRequest = { showPracticeDialog = false },
                 containerColor = Color(0xFF1E0A0A).copy(alpha = 0.95f),
-                title = { Text("RISULTATI SESSIONE", color = Color(0xFF00FFCC), fontWeight = FontWeight.Black) },
-                text = { Text("I risultati in tempo reale per questa specifica sessione saranno disponibili con le prossime integrazioni API.", color = Color.White) },
-                confirmButton = { TextButton(onClick = { showConcludedDialog = false }) { Text("OK", color = Color(0xFF00FFCC)) } }
+                title = { Text("PROVE LIBERE", color = Color(0xFF00FFCC), fontWeight = FontWeight.Black) },
+                text = { Text("I risultati delle sessioni di Prove Libere non vengono tracciati per le statistiche del campionato. Sono disponibili solo le sessioni ufficiali (Qualifiche, Sprint, Gara).", color = Color.White) },
+                confirmButton = { TextButton(onClick = { showPracticeDialog = false }) { Text("OK", color = Color(0xFF00FFCC)) } }
             )
         }
     }
