@@ -100,7 +100,20 @@ data class RaceWeekEntity(
     val sprint_shootout_time: String?,
     val sprint_race_time: String?,
     val quali_time: String?,
-    val race_time: String?
+    val race_time: String?,
+    val circuit_length: String?,
+    val laps: Int,
+    val corners: Int
+)
+
+@Entity(tableName = "news_articles")
+data class NewsArticleEntity(
+    @PrimaryKey val id: Int,
+    val title: String,
+    val source: String,
+    val url: String,
+    val image_url: String?,
+    val published_at: String
 )
 
 @Entity(tableName = "driver_career_stats")
@@ -296,6 +309,21 @@ interface GeneralDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertRaceWeek(raceWeek: RaceWeekEntity)
+
+    @Query("SELECT * FROM news_articles ORDER BY published_at DESC LIMIT 20")
+    fun getNewsArticles(): Flow<List<NewsArticleEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertNewsArticles(articles: List<NewsArticleEntity>)
+
+    @Query("DELETE FROM news_articles")
+    suspend fun clearNewsArticles()
+
+    @Transaction
+    suspend fun updateNewsArticles(articles: List<NewsArticleEntity>) {
+        clearNewsArticles()
+        insertNewsArticles(articles)
+    }
 }
 
 @Dao
@@ -337,8 +365,8 @@ interface ConstructorSeasonStatsDao {
 // --- 3. DATABASE (Il motore Room) ---
 
 @Database(
-    entities = [DriverStandingEntity::class, ConstructorStandingEntity::class, CircuitDetailEntity::class, RaceResultEntity::class, CalendarEntity::class, RaceWeekEntity::class, DriverStatsEntity::class, ConstructorStatsEntity::class, DriverSeasonStatsEntity::class, ConstructorSeasonStatsEntity::class],
-    version = 19,
+    entities = [DriverStandingEntity::class, ConstructorStandingEntity::class, CircuitDetailEntity::class, RaceResultEntity::class, CalendarEntity::class, RaceWeekEntity::class, DriverStatsEntity::class, ConstructorStatsEntity::class, DriverSeasonStatsEntity::class, ConstructorSeasonStatsEntity::class, NewsArticleEntity::class],
+    version = 20,
     exportSchema = false
 )
 abstract class FormulaDatabase : RoomDatabase() {

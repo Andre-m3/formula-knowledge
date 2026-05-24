@@ -135,6 +135,9 @@ class RaceWeekResponse(BaseModel):
     dates: List[str]
     weather_forecast: Optional[WeatherForecastSchema] = None
     sessions: SessionTimesSchema
+    circuit_length: Optional[str] = None
+    laps: Optional[int] = None
+    corners: Optional[int] = None
 
 class CalendarEntryResponse(BaseModel):
     name: str
@@ -195,12 +198,14 @@ class CircuitDetailResponse(BaseModel):
     status: str
     dates: List[str]
     previous_winner: str
-    most_driver_wins: str
-    most_constructor_wins: str
-    most_driver_podiums: str
-    most_poles: str
-    num_races_held: int
-    sessions: SessionTimesSchema
+
+class NewsArticleResponseSchema(BaseModel):
+    id: int
+    title: str
+    source: str
+    url: str
+    image_url: Optional[str] = None
+    published_at: datetime
 
 class DriverStatsResponseSchema(BaseModel):
     driver_id: str
@@ -277,7 +282,10 @@ async def get_current_raceweek(db: Session = Depends(database.get_db)):
         "status": status,
         "dates": dates_list,
         "weather_forecast": forecast,
-        "sessions": sessions
+        "sessions": sessions,
+        "circuit_length": db_race.circuit_length if db_race else "N/A",
+        "laps": db_race.laps if db_race else 0,
+        "corners": db_race.corners if db_race else 0
     }
 
 @app.get("/api/v1/circuit/{round_number}", response_model=CircuitDetailResponse, dependencies=[Depends(get_api_key)])
@@ -518,3 +526,17 @@ def get_constructor_season_stats(constructor_id: str, db: Session = Depends(data
     if not stats:
         raise HTTPException(status_code=404, detail="Constructor season stats not found")
     return stats
+
+@app.get("/api/v1/news", response_model=List[NewsArticleResponseSchema], dependencies=[Depends(get_api_key)])
+def get_latest_news(db: Session = Depends(database.get_db)):
+    articles = db.query(models.NewsArticle).order_by(models.NewsArticle.published_at.desc()).limit(20).all()
+    return [
+        {
+            "id": a.id,
+            "title": a.title,
+            "source": a.source,
+            "url": a.url,
+            "image_url": a.image_url,
+            "published_at": a.published_at
+        } for a in articles
+    ]

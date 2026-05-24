@@ -10,7 +10,10 @@ data class RaceWeekResponse(
     val status: String,
     val dates: List<String>,
     val weather_forecast: WeatherForecast?,
-    val sessions: SessionTimes
+    val sessions: SessionTimes,
+    val circuit_length: String? = null,
+    val laps: Int? = null,
+    val corners: Int? = null
 )
 
 data class SessionTimes(

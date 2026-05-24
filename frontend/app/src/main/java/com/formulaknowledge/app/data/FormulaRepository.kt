@@ -155,6 +155,7 @@ class FormulaRepository(private val database: FormulaDatabase) {
 
     val calendar: Flow<List<CalendarEntity>> = generalDao.getCalendar()
     val currentRaceWeek: Flow<RaceWeekEntity?> = generalDao.getCurrentRaceWeek()
+    val newsArticles: Flow<List<NewsArticleEntity>> = generalDao.getNewsArticles()
 
     suspend fun refreshCalendar() {
         val now = System.currentTimeMillis()
@@ -214,13 +215,26 @@ class FormulaRepository(private val database: FormulaDatabase) {
                 1, apiData.gp_name, apiData.country, apiData.city, apiData.circuit_name,
                 apiData.round_number, apiData.is_sprint, apiData.dates.joinToString(","), apiData.status, weatherJson, now,
                 apiData.sessions.fp1, apiData.sessions.fp2, apiData.sessions.fp3,
-                apiData.sessions.sprint_shootout, apiData.sessions.sprint_race, apiData.sessions.quali, apiData.sessions.race
+                apiData.sessions.sprint_shootout, apiData.sessions.sprint_race, apiData.sessions.quali, apiData.sessions.race,
+                apiData.circuit_length, apiData.laps ?: 0, apiData.corners ?: 0
             )
             generalDao.insertRaceWeek(entity)
             lastCurrentRaceWeekFetch = System.currentTimeMillis()
         } catch (e: Exception) {
             Log.e("FormulaRepository", "refreshCurrentRaceWeek failed", e)
             /* Ignoriamo l'errore, la UI gestirà i dati vecchi/assenti */ }
+    }
+
+    suspend fun refreshNews() {
+        try {
+            val apiData = RetrofitClient.apiService.getLatestNews()
+            val entities = apiData.map {
+                NewsArticleEntity(it.id, it.title, it.source, it.url, it.image_url, it.published_at)
+            }
+            generalDao.updateNewsArticles(entities)
+        } catch (e: Exception) {
+            Log.e("FormulaRepository", "refreshNews failed", e)
+        }
     }
 
     fun getDriverStats(driverId: String): Flow<DriverStatsEntity?> = driverStatsDao.getStats(driverId)

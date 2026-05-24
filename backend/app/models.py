@@ -245,3 +245,13 @@ class ConstructorSeasonStats(Base):
     sprint_points = Column(Integer, default=0)
     
     last_updated = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+class NewsArticle(Base):
+    __tablename__ = "news_articles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String, nullable=False)
+    source = Column(String, nullable=False)
+    url = Column(String, unique=True, nullable=False)
+    image_url = Column(String, nullable=True)
+    published_at = Column(DateTime, nullable=False)

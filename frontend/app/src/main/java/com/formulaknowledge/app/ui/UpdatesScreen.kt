@@ -13,6 +13,7 @@ import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.Image
@@ -51,6 +52,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.net.Uri
+import androidx.browser.customtabs.CustomTabsIntent
+import coil.compose.AsyncImage
 import kotlin.math.abs
 import kotlin.math.min
 import kotlin.math.pow
@@ -58,7 +62,7 @@ import com.formulaknowledge.app.data.*
 import com.formulaknowledge.app.utils.F1Utils
 import kotlinx.coroutines.launch
 
-enum class AppScreen { HOME, CALENDAR, PERSONAL, UPDATES_LIST, TEAM_DETAIL, WEATHER_DETAIL, RESULTS, STANDINGS, DRIVER_DETAIL, CONSTRUCTOR_DETAIL, RACE_SESSIONS, CIRCUIT_DETAIL, HEAD_TO_HEAD, HEAD_TO_HEAD_CONSTRUCTOR }
+enum class AppScreen { HOME, CALENDAR, PERSONAL, UPDATES_LIST, TEAM_DETAIL, WEATHER_DETAIL, RESULTS, STANDINGS, DRIVER_DETAIL, CONSTRUCTOR_DETAIL, RACE_SESSIONS, CIRCUIT_DETAIL, HEAD_TO_HEAD, HEAD_TO_HEAD_CONSTRUCTOR, NEWS }
 
 val AppBackgroundGradientColor = Color(0xFF0B0E14)
 
@@ -69,6 +73,7 @@ fun UpdatesScreen() {
     val repository = remember { FormulaRepository(database) }
 
     val raceWeekEntity by repository.currentRaceWeek.collectAsState(initial = null)
+    val newsEntities by repository.newsArticles.collectAsState(initial = emptyList())
     val raceWeek = raceWeekEntity?.let { entity ->
         val weather = entity.weather_json?.let { json ->
             try {
@@ -78,7 +83,7 @@ fun UpdatesScreen() {
         val sessions = SessionTimes(entity.fp1_time, entity.fp2_time, entity.fp3_time, entity.sprint_shootout_time, entity.sprint_race_time, entity.quali_time, entity.race_time)
         RaceWeekResponse(
             entity.gp_name, entity.country, entity.city, entity.circuit_name,
-            entity.round_number, entity.is_sprint, entity.status, entity.dates_joined.split(","), weather, sessions
+            entity.round_number, entity.is_sprint, entity.status, entity.dates_joined.split(","), weather, sessions, entity.circuit_length, entity.laps, entity.corners
         )
     }
 
@@ -157,14 +162,14 @@ fun UpdatesScreen() {
     }
 
     val bottomBarOffset by animateDpAsState(
-        targetValue = if (isBottomBarVisible) 0.dp else 120.dp,
+        targetValue = if (isBottomBarVisible || currentScreen == AppScreen.NEWS) 0.dp else 120.dp,
         animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
         label = "BottomBarOffset"
     )
 
     BackHandler(enabled = currentScreen != AppScreen.HOME) {
         when (currentScreen) {
-            AppScreen.CALENDAR, AppScreen.STANDINGS, AppScreen.PERSONAL, AppScreen.UPDATES_LIST, AppScreen.WEATHER_DETAIL -> currentScreen = AppScreen.HOME
+            AppScreen.CALENDAR, AppScreen.STANDINGS, AppScreen.PERSONAL, AppScreen.UPDATES_LIST, AppScreen.WEATHER_DETAIL, AppScreen.NEWS -> currentScreen = AppScreen.HOME
             AppScreen.TEAM_DETAIL -> currentScreen = AppScreen.UPDATES_LIST
             AppScreen.DRIVER_DETAIL -> currentScreen = previousScreenForStats
             AppScreen.CONSTRUCTOR_DETAIL -> currentScreen = previousScreenForStats
@@ -185,6 +190,8 @@ fun UpdatesScreen() {
         launch { repository.refreshStandings() }
         // 3) Calendario e circuiti
         launch { repository.refreshCalendar() }
+        // 4) Fetch articoli RSS
+        launch { repository.refreshNews() }
     }
 
     Box(modifier = Modifier
@@ -204,7 +211,7 @@ fun UpdatesScreen() {
                 label = "ScreenTransition"
             ) { targetScreen ->
                 when (targetScreen) {
-                    AppScreen.HOME -> HomeScreen(raceWeek, raceWeek == null, onNavigate = {
+                    AppScreen.HOME -> HomeScreen(raceWeek, raceWeek == null, newsEntities, onNavigate = {
                         if (it == AppScreen.RACE_SESSIONS) {
                             selectedSprintForSessions = raceWeek?.is_sprint ?: false
                             selectedGpForSessions = raceWeek?.gp_name ?: ""
@@ -234,6 +241,7 @@ fun UpdatesScreen() {
                         }
                     )
                     AppScreen.PERSONAL -> PersonalScreen()
+                    AppScreen.NEWS -> NewsScreen(newsEntities)
                     AppScreen.UPDATES_LIST -> UpdatesListScreen(updatesWrapper?.data ?: emptyList(), isLoadingUpdates, onTeamClick = { selectedTeam = it; currentScreen = AppScreen.TEAM_DETAIL })
                     AppScreen.TEAM_DETAIL -> TeamUpdateDetailScreen(selectedTeam!!)
                     AppScreen.WEATHER_DETAIL -> WeatherDetailScreen(raceWeek, raceWeekEntity)
@@ -298,7 +306,7 @@ fun UpdatesScreen() {
                 }
                 }
 
-            if (currentScreen in listOf(AppScreen.HOME, AppScreen.CALENDAR, AppScreen.PERSONAL, AppScreen.RESULTS, AppScreen.STANDINGS, AppScreen.WEATHER_DETAIL, AppScreen.DRIVER_DETAIL, AppScreen.CONSTRUCTOR_DETAIL, AppScreen.RACE_SESSIONS, AppScreen.CIRCUIT_DETAIL)) {
+            if (currentScreen in listOf(AppScreen.HOME, AppScreen.CALENDAR, AppScreen.PERSONAL, AppScreen.NEWS, AppScreen.RESULTS, AppScreen.STANDINGS, AppScreen.WEATHER_DETAIL, AppScreen.DRIVER_DETAIL, AppScreen.CONSTRUCTOR_DETAIL, AppScreen.RACE_SESSIONS, AppScreen.CIRCUIT_DETAIL)) {
                 Box(
                     modifier = Modifier
                         .offset(y = bottomBarOffset)
@@ -1789,23 +1797,24 @@ fun FloatingBottomBar(currentScreen: AppScreen, previousScreenForStats: AppScree
         Triple(Icons.Default.DateRange, "Calendar", AppScreen.CALENDAR),
         Triple(Icons.Default.Home, "Home", AppScreen.HOME),
         Triple(Icons.Default.Leaderboard, "Classifiche", AppScreen.STANDINGS),
+        Triple(Icons.Default.Article, "News", AppScreen.NEWS),
         Triple(Icons.Default.Person, "Personal", AppScreen.PERSONAL)
     )
     val barWidth = 252.dp
     val barHeight = 55.dp
     Surface(modifier = Modifier.height(barHeight).width(barWidth), shape = CircleShape, color = Color(0xFF1E0A0A).copy(alpha = 0.90f)) {
         Box(modifier = Modifier.fillMaxSize()) {
-            val selectedIndex = items.indexOfFirst { it.third == when(currentScreen) {
-                AppScreen.CALENDAR -> AppScreen.CALENDAR
-                AppScreen.CIRCUIT_DETAIL -> AppScreen.CALENDAR
-                AppScreen.STANDINGS -> AppScreen.STANDINGS
-                AppScreen.DRIVER_DETAIL -> AppScreen.STANDINGS
-                AppScreen.CONSTRUCTOR_DETAIL -> AppScreen.STANDINGS
+            val effectiveScreen = when(currentScreen) {
+                AppScreen.CALENDAR, AppScreen.CIRCUIT_DETAIL -> AppScreen.CALENDAR
+                AppScreen.STANDINGS, AppScreen.DRIVER_DETAIL, AppScreen.CONSTRUCTOR_DETAIL -> AppScreen.STANDINGS
                 AppScreen.PERSONAL -> AppScreen.PERSONAL
+                AppScreen.NEWS -> AppScreen.NEWS
                 AppScreen.RESULTS -> if (previousScreenForStats == AppScreen.RACE_SESSIONS && previousScreenForSessions == AppScreen.HOME) AppScreen.HOME else AppScreen.CALENDAR
                 AppScreen.RACE_SESSIONS -> previousScreenForSessions
                 else -> AppScreen.HOME
-            } }
+            }
+
+            val selectedIndex = items.indexOfFirst { it.third == effectiveScreen }.let { if (it == -1) 1 else it }
             val itemWidth = barWidth / items.size
             val indicatorOffset by animateDpAsState(targetValue = (selectedIndex * itemWidth.value).dp, animationSpec = tween(300), label = "Indicator")
             Box(modifier = Modifier.offset(x = indicatorOffset).width(itemWidth).fillMaxHeight(), contentAlignment = Alignment.Center) {
@@ -1813,13 +1822,7 @@ fun FloatingBottomBar(currentScreen: AppScreen, previousScreenForStats: AppScree
             }
             Row(modifier = Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
                 items.forEach { (icon, label, screen) ->
-                    val isSelected = when {
-                        currentScreen == screen -> true
-                        screen == AppScreen.STANDINGS && (currentScreen == AppScreen.STANDINGS || currentScreen == AppScreen.DRIVER_DETAIL || currentScreen == AppScreen.CONSTRUCTOR_DETAIL) -> true
-                        screen == AppScreen.CALENDAR && (currentScreen == AppScreen.RESULTS || currentScreen == AppScreen.CIRCUIT_DETAIL) -> true
-                        screen == AppScreen.HOME && currentScreen !in listOf(AppScreen.CALENDAR, AppScreen.PERSONAL, AppScreen.RESULTS, AppScreen.STANDINGS, AppScreen.WEATHER_DETAIL, AppScreen.DRIVER_DETAIL, AppScreen.CONSTRUCTOR_DETAIL, AppScreen.RACE_SESSIONS, AppScreen.CIRCUIT_DETAIL) -> true
-                        else -> false
-                    }
+                    val isSelected = screen == effectiveScreen
                     Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
                         IconButton(onClick = { onNavigate(screen) }) {
                             Icon(imageVector = icon, contentDescription = label, tint = if (isSelected) Color(0xFF00FFCC) else Color.White.copy(alpha = 0.4f), modifier = Modifier.size(24.dp))
@@ -1832,14 +1835,11 @@ fun FloatingBottomBar(currentScreen: AppScreen, previousScreenForStats: AppScree
 }
 
 @Composable
-fun HomeScreen(raceWeek: RaceWeekResponse?, isLoading: Boolean, onNavigate: (AppScreen) -> Unit) {
+fun HomeScreen(raceWeek: RaceWeekResponse?, isLoading: Boolean, articles: List<NewsArticleEntity>, onNavigate: (AppScreen) -> Unit) {
     val context = LocalContext.current
     val database = remember { FormulaDatabase.getDatabase(context) }
     val repository = remember { FormulaRepository(database) }
     val roundNumber = raceWeek?.round_number ?: 0
-    val resultsEntities by repository.getRaceResults(roundNumber, "race").collectAsState(initial = emptyList())
-    val top5Results = resultsEntities.take(5).map { RaceResultResponse(it.position, it.driver, it.team, it.points, it.time, it.q1, it.q2, it.q3) }
-    val circuitEntity by repository.getCircuitDetail(roundNumber).collectAsState(initial = null)
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
         Spacer(modifier = Modifier.height(26.dp)) 
@@ -1943,15 +1943,17 @@ fun HomeScreen(raceWeek: RaceWeekResponse?, isLoading: Boolean, onNavigate: (App
         Spacer(modifier = Modifier.height(26.dp)) 
         
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) { 
-            circuitEntity?.let { circuit ->
+            val circuitName = raceWeek?.circuit_name ?: "CIRCUIT"
+            val laps = raceWeek?.laps ?: 0
+            val length = raceWeek?.circuit_length ?: "0 km"
+            val corners = raceWeek?.corners ?: 0
                 CircuitTechnicalCard(
-                    round = circuit.round,
-                    circuitName = circuit.circuit_name ?: "CIRCUIT",
-                    laps = circuit.laps,
-                    length = circuit.length,
-                    corners = circuit.corners
+                    round = roundNumber,
+                    circuitName = circuitName,
+                    laps = laps,
+                    length = length,
+                    corners = corners
                 )
-            }
 
             FullWidthGlassCard(title = "RACE SESSIONS", content = "See all weekend schedule", accentColor = Color(0xFF00FFCC), isHighlighted = true, onClick = { onNavigate(AppScreen.RACE_SESSIONS) })
             
@@ -1971,7 +1973,7 @@ fun HomeScreen(raceWeek: RaceWeekResponse?, isLoading: Boolean, onNavigate: (App
                 FullWidthGlassCard(title = "UPDATES", content = "Tech report", accentColor = Color(0xFF00FFCC), showChevron = false, modifier = Modifier.weight(0.57f), onClick = { onNavigate(AppScreen.UPDATES_LIST) })
             }
             
-            NewsBannerCarousel()
+            NewsBannerCarousel(articles)
             Spacer(modifier = Modifier.height(20.dp))
         }
     }
@@ -2275,36 +2277,48 @@ fun TeamUpdateCard(name: String, colorHex: String, onClick: () -> Unit) {
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-fun NewsBannerCarousel() {
-    val pagerState = rememberPagerState(pageCount = { 3 })
+fun NewsBannerCarousel(articles: List<NewsArticleEntity>) {
+    if (articles.isEmpty()) return
+    
+    val displayArticles = articles.take(5)
+    val pagerState = rememberPagerState(pageCount = { displayArticles.size })
+    val context = LocalContext.current
+    
+    LaunchedEffect(pagerState) {
+        while(true) {
+            kotlinx.coroutines.delay(5000)
+            val nextPage = (pagerState.currentPage + 1) % displayArticles.size
+            pagerState.animateScrollToPage(nextPage)
+        }
+    }
     
     Surface(
         modifier = Modifier.fillMaxWidth().height(84.dp),
         shape = RoundedCornerShape(12.dp),
-        color = Color.White.copy(alpha = 0.05f),
-        border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.1f))
+        color = Color.White.copy(alpha = 0.03f)
     ) {
         HorizontalPager(
             state = pagerState,
             modifier = Modifier.fillMaxSize()
         ) { page ->
-            Row(
-                modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Column(modifier = Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.Center) {
-                    Text(text = "LATEST NEWS", color = Color(0xFF00FFCC), fontSize = 12.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic, letterSpacing = 0.5.sp)
-                    Text(
-                        text = "BANNER PUBBLICITARIO ${page + 1}",
-                        color = Color.White,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+            val article = displayArticles[page]
+            Box(modifier = Modifier.fillMaxSize().clickable {
+                val url = article.url
+                if (url.startsWith("http://") || url.startsWith("https://")) {
+                    val intent = CustomTabsIntent.Builder().setShowTitle(true).build()
+                    intent.launchUrl(context, Uri.parse(url))
                 }
-                Icon(imageVector = Icons.Default.Feed, contentDescription = null, tint = Color.White.copy(alpha = 0.2f), modifier = Modifier.size(24.dp))
+            }) {
+                AsyncImage(model = article.image_url, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize(), alpha = 0.4f)
+                Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.3f)))
+                
+                Row(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                    Column(modifier = Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.Center) {
+                        Text(text = article.source.uppercase(), color = Color(0xFF00FFCC), fontSize = 12.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic, letterSpacing = 0.5.sp)
+                        Text(text = article.title, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    Icon(imageVector = Icons.Default.Feed, contentDescription = null, tint = Color.White.copy(alpha = 0.4f), modifier = Modifier.size(24.dp))
+                }
             }
         }
     }
@@ -2335,4 +2349,95 @@ fun StandingRow(pos: Int, name: String, points: String, subtitle: String? = null
             Text(text = points, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic, lineHeight = 22.sp)
         }
     }
+}
+
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+fun NewsScreen(articles: List<NewsArticleEntity>) {
+    val pagerState = rememberPagerState(pageCount = { if (articles.isEmpty()) 1 else articles.size })
+    val coroutineScope = rememberCoroutineScope()
+    val context = LocalContext.current
+
+    if (articles.isEmpty()) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Color(0xFF00FFCC)) }
+        return
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        VerticalPager(
+            state = pagerState,
+            modifier = Modifier.fillMaxSize()
+        ) { page ->
+            val article = articles[page]
+            Box(modifier = Modifier.fillMaxSize()) {
+                AsyncImage(
+                    model = article.image_url,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize().background(Color(0xFF121212))
+                )
+                
+                Box(modifier = Modifier.fillMaxWidth().height(450.dp).align(Alignment.BottomCenter).background(Brush.verticalGradient(colors = listOf(Color.Transparent, Color.Black))))
+
+                Column(modifier = Modifier.align(Alignment.BottomStart).padding(start = 24.dp, end = 24.dp, bottom = 130.dp)) {
+                    Text(text = article.title, color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.Black, lineHeight = 36.sp, fontStyle = FontStyle.Italic)
+                    Spacer(modifier = Modifier.height(20.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Bottom) {
+                        Column {
+                            Surface(color = Color(0xFF00FFCC).copy(alpha = 0.15f), shape = RoundedCornerShape(6.dp)) {
+                                Text(text = article.source.uppercase(), color = Color(0xFF00FFCC), fontSize = 11.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp))
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(text = getTimeAgo(article.published_at), color = Color.White.copy(alpha = 0.6f), fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        }
+                        Button(onClick = { 
+                            val url = article.url
+                            if (url.startsWith("http://") || url.startsWith("https://")) {
+                                val intent = CustomTabsIntent.Builder().setShowTitle(true).build()
+                                intent.launchUrl(context, Uri.parse(url))
+                            }
+                        }, colors = ButtonDefaults.buttonColors(containerColor = Color.White), shape = RoundedCornerShape(12.dp), modifier = Modifier.size(56.dp), contentPadding = PaddingValues(0.dp)) {
+                            Icon(Icons.Default.OpenInBrowser, contentDescription = "Read Full Article", tint = Color.Black, modifier = Modifier.size(28.dp))
+                        }
+                    }
+                }
+            }
+        }
+
+        AnimatedVisibility(
+            visible = pagerState.currentPage > 0,
+            enter = fadeIn() + scaleIn(),
+            exit = fadeOut() + scaleOut(),
+            modifier = Modifier.align(Alignment.BottomEnd).padding(end = 24.dp, bottom = 206.dp)
+        ) {
+            FloatingActionButton(
+                onClick = { coroutineScope.launch { pagerState.animateScrollToPage(0) } },
+                containerColor = Color(0xFF00FFCC),
+                contentColor = Color.Black,
+                shape = CircleShape,
+                modifier = Modifier.size(56.dp)
+            ) {
+                Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Torna su")
+            }
+        }
+    }
+}
+
+fun getTimeAgo(publishedAt: String): String {
+    return try {
+        val format = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.getDefault())
+        format.timeZone = java.util.TimeZone.getTimeZone("UTC")
+        val past = format.parse(publishedAt) ?: return ""
+        val now = java.util.Date()
+        val seconds = java.util.concurrent.TimeUnit.MILLISECONDS.toSeconds(now.time - past.time)
+        val minutes = java.util.concurrent.TimeUnit.MILLISECONDS.toMinutes(now.time - past.time)
+        val hours = java.util.concurrent.TimeUnit.MILLISECONDS.toHours(now.time - past.time)
+        val days = java.util.concurrent.TimeUnit.MILLISECONDS.toDays(now.time - past.time)
+        when {
+            seconds < 60 -> "Just now"
+            minutes < 60 -> "$minutes minutes ago"
+            hours < 24 -> "$hours hours ago"
+            else -> "$days days ago"
+        }
+    } catch (e: Exception) { "" }
 }

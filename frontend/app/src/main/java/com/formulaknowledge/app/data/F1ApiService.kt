@@ -39,4 +39,7 @@ interface F1ApiService {
 
     @GET("api/v1/constructors/{constructor_id}/season_stats")
     suspend fun getConstructorSeasonStats(@Path("constructor_id") constructorId: String): ConstructorSeasonStatsResponse
+    
+    @GET("api/v1/news")
+    suspend fun getLatestNews(): List<NewsArticleResponse>
 }
