@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Depends, HTTPException, Security
 from fastapi.security.api_key import APIKeyHeader
+from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from pydantic import BaseModel
@@ -76,12 +77,34 @@ class ConstructorSeasonStatsResponseSchema(BaseModel):
     sprint_points: int
     last_updated: datetime
 
+# --- AUTH SCHEMAS ---
+class UserCreateSchema(BaseModel):
+    email: str
+    password: str
+    full_name: Optional[str] = None
+
+class UserLoginSchema(BaseModel):
+    email: str
+    password: str
+
+class TokenResponseSchema(BaseModel):
+    access_token: str
+    token_type: str
+
+class UserResponseSchema(BaseModel):
+    id: int
+    email: str
+    full_name: Optional[str] = None
+    favorite_constructor_id: Optional[str] = None
+    auth_provider: str
+
 from . import database, models
 from .services.fia_scraper import FiaScraperService
 from .services.weather_service import WeatherService
 from .services.calendar_service import CalendarService
 from .services.external_api_service import ExternalApiService
 from .core.config import settings
+from .auth import get_password_hash, verify_password, create_access_token, verify_access_token
 
 app = FastAPI(title="Formula Knowledge API")
 
@@ -94,6 +117,21 @@ async def get_api_key(api_key_header: str = Security(api_key_header)):
     if api_key_header != settings.API_SECRET_KEY:
         raise HTTPException(status_code=403, detail="Non autorizzato: API Key mancante o non valida")
     return api_key_header
+
+# OAuth2 scheme per estrarre automaticamente il token JWT dall'header "Authorization"
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
+
+async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(database.get_db)):
+    payload = verify_access_token(token)
+    if not payload:
+        raise HTTPException(status_code=401, detail="Token non valido o scaduto")
+    user_id = payload.get("sub")
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="Token non valido")
+    user = db.query(models.User).filter(models.User.id == int(user_id)).first()
+    if not user:
+        raise HTTPException(status_code=401, detail="Utente non trovato")
+    return user
 
 # --- SCHEMI ---
 
@@ -198,6 +236,12 @@ class CircuitDetailResponse(BaseModel):
     status: str
     dates: List[str]
     previous_winner: str
+    most_driver_wins: str
+    most_constructor_wins: str
+    most_driver_podiums: str
+    most_poles: str
+    num_races_held: int
+    sessions: SessionTimesSchema
 
 class NewsArticleResponseSchema(BaseModel):
     id: int
@@ -248,7 +292,14 @@ async def get_current_raceweek(db: Session = Depends(database.get_db)):
     race_info = calendar.get_current_or_next_race()
     db_race = db.query(models.Race).filter(models.Race.round_number == race_info["round"]).first()
     is_sprint = db_race.is_sprint if db_race else False
-    forecast = weather.get_forecast(race_info["lat"], race_info["lon"])
+    
+    # FIX Coordinate: Jolpica a volte ritorna 0.0 per i circuiti cittadini storici
+    lat = race_info.get("lat", 0.0)
+    lon = race_info.get("lon", 0.0)
+    if (lat == 0.0 or lon == 0.0) and "monaco" in race_info.get("name", "").lower():
+        lat, lon = 43.7347, 7.4206
+        
+    forecast = weather.get_forecast(lat, lon)
     race_date = race_info["date"]
     dates_list = [
         (race_date - timedelta(days=2)).strftime('%d %b'),
@@ -540,3 +591,42 @@ def get_latest_news(db: Session = Depends(database.get_db)):
             "published_at": a.published_at
         } for a in articles
     ]
+
+# --- AUTH ENDPOINTS ---
+
+@app.post("/api/v1/auth/register", response_model=TokenResponseSchema, dependencies=[Depends(get_api_key)])
+def register_user(user_data: UserCreateSchema, db: Session = Depends(database.get_db)):
+    # Verifica se l'email esiste già
+    existing_user = db.query(models.User).filter(models.User.email == user_data.email).first()
+    if existing_user:
+        raise HTTPException(status_code=400, detail="Email già registrata")
+    
+    # Crea e salva il nuovo utente
+    new_user = models.User(
+        email=user_data.email,
+        hashed_password=get_password_hash(user_data.password),
+        full_name=user_data.full_name,
+        auth_provider="email"
+    )
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+    
+    # Genera il Token JWT
+    access_token = create_access_token(data={"sub": str(new_user.id)})
+    return {"access_token": access_token, "token_type": "bearer"}
+
+@app.post("/api/v1/auth/login", response_model=TokenResponseSchema, dependencies=[Depends(get_api_key)])
+def login_user(user_data: UserLoginSchema, db: Session = Depends(database.get_db)):
+    user = db.query(models.User).filter(models.User.email == user_data.email).first()
+    
+    # Verifica credenziali e assicura che l'utente non sia un utente social senza password
+    if not user or not user.hashed_password or not verify_password(user_data.password, user.hashed_password):
+        raise HTTPException(status_code=401, detail="Email o password non valide")
+        
+    access_token = create_access_token(data={"sub": str(user.id)})
+    return {"access_token": access_token, "token_type": "bearer"}
+
+@app.get("/api/v1/auth/me", response_model=UserResponseSchema, dependencies=[Depends(get_api_key)])
+def get_my_profile(current_user: models.User = Depends(get_current_user)):
+    return current_user

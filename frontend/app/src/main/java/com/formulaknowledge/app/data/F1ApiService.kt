@@ -1,7 +1,10 @@
 package com.formulaknowledge.app.data
 
 import retrofit2.http.GET
+import retrofit2.http.POST
 import retrofit2.http.Path
+import retrofit2.http.Body
+import retrofit2.http.Header
 
 interface F1ApiService {
     @GET("api/v1/raceweek/current")
@@ -42,4 +45,13 @@ interface F1ApiService {
     
     @GET("api/v1/news")
     suspend fun getLatestNews(): List<NewsArticleResponse>
+
+    @POST("api/v1/auth/login")
+    suspend fun login(@Body request: UserLoginRequest): TokenResponse
+
+    @POST("api/v1/auth/register")
+    suspend fun register(@Body request: UserRegisterRequest): TokenResponse
+
+    @GET("api/v1/auth/me")
+    suspend fun getMyProfile(@Header("Authorization") authHeader: String): UserProfileResponse
 }

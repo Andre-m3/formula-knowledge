@@ -71,6 +71,25 @@ fun UpdatesScreen() {
     val context = LocalContext.current
     val database = remember { FormulaDatabase.getDatabase(context) }
     val repository = remember { FormulaRepository(database) }
+    
+    // --- GESTIONE ONBOARDING E AUTH ---
+    val authViewModel: AuthViewModel = androidx.lifecycle.viewmodel.compose.viewModel(
+        factory = AuthViewModelFactory(context)
+    )
+    val authUiState by authViewModel.uiState.collectAsState()
+
+    if (authUiState.isCheckingOnboarding) {
+        AppSplashScreen()
+        return
+    }
+
+    if (!authUiState.hasSeenOnboarding) {
+        OnboardingScreen(
+            onSkip = { authViewModel.completeOnboarding() },
+            onGoogleSignIn = { authViewModel.completeOnboarding() /* TODO: Effettivo accesso Google in seguito */ }
+        )
+        return
+    }
 
     val raceWeekEntity by repository.currentRaceWeek.collectAsState(initial = null)
     val newsEntities by repository.newsArticles.collectAsState(initial = emptyList())
@@ -110,6 +129,9 @@ fun UpdatesScreen() {
     var selectedGpStatusForSessions by remember { mutableStateOf("future") }
     var selectedDatesForSessions by remember { mutableStateOf<List<String>>(emptyList()) }
     var previousScreenForSessions by remember { mutableStateOf(AppScreen.HOME) }
+    var selectedNewsIndex by remember { mutableIntStateOf(0) }
+    var isRefreshingNews by remember { mutableStateOf(false) }
+    val coroutineScope = rememberCoroutineScope()
 
     var showNotReadyDialog by remember { mutableStateOf(false) }
 
@@ -194,6 +216,12 @@ fun UpdatesScreen() {
         launch { repository.refreshNews() }
     }
 
+    // --- SPLASH SCREEN BLOCCANTE ---
+    if (raceWeek == null) {
+        AppSplashScreen()
+        return
+    }
+
     Box(modifier = Modifier
         .fillMaxSize()
         .background(AppBackgroundGradientColor)
@@ -221,11 +249,15 @@ fun UpdatesScreen() {
                             selectedGpStatusForSessions = raceWeek?.status ?: "future"
                             previousScreenForSessions = AppScreen.HOME
                             currentScreen = it
-                        } else if (it == AppScreen.UPDATES_LIST && updatesWrapper?.status == "not_ready") {
+                        } else if (it == AppScreen.UPDATES_LIST) {
+                            // Niente caricamenti, mostriamo subito il popup per ora!
                             showNotReadyDialog = true
                         } else {
                             currentScreen = it
                         }
+                    }, onNavigateToNews = { index ->
+                        selectedNewsIndex = index
+                        currentScreen = AppScreen.NEWS
                     })
                     AppScreen.CALENDAR -> CalendarScreen(
                         onNavigateToHome = { currentScreen = AppScreen.HOME },
@@ -241,7 +273,13 @@ fun UpdatesScreen() {
                         }
                     )
                     AppScreen.PERSONAL -> PersonalScreen()
-                    AppScreen.NEWS -> NewsScreen(newsEntities)
+                AppScreen.NEWS -> NewsScreen(newsEntities, selectedNewsIndex, isRefreshingNews, onRefresh = {
+                    coroutineScope.launch {
+                        isRefreshingNews = true
+                        repository.refreshNews()
+                        isRefreshingNews = false
+                    }
+                })
                     AppScreen.UPDATES_LIST -> UpdatesListScreen(updatesWrapper?.data ?: emptyList(), isLoadingUpdates, onTeamClick = { selectedTeam = it; currentScreen = AppScreen.TEAM_DETAIL })
                     AppScreen.TEAM_DETAIL -> TeamUpdateDetailScreen(selectedTeam!!)
                     AppScreen.WEATHER_DETAIL -> WeatherDetailScreen(raceWeek, raceWeekEntity)
@@ -508,7 +546,7 @@ fun CircuitDetailScreen(round: Int, onNavigateToResults: (Int, String) -> Unit, 
                         if (data.status == "future" || data.status == "current") {
                             Button(
                                 onClick = { onNavigateToSessions(data.is_sprint, data.gp_name, data.country, data.sessions, data.status, data.dates) },
-                                modifier = Modifier.fillMaxWidth().height(56.dp),
+                                modifier = Modifier.fillMaxWidth().height(48.dp),
                                 shape = RoundedCornerShape(16.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00FFCC).copy(alpha = 0.9f))
                             ) {
@@ -522,7 +560,7 @@ fun CircuitDetailScreen(round: Int, onNavigateToResults: (Int, String) -> Unit, 
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Button(
                                 onClick = { onNavigateToResults(data.round, data.gp_name) },
-                                modifier = Modifier.weight(1f).height(56.dp),
+                                modifier = Modifier.weight(1f).height(48.dp),
                                 shape = RoundedCornerShape(16.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF0033).copy(alpha = 0.9f)),
                                 contentPadding = PaddingValues(0.dp)
@@ -539,11 +577,10 @@ fun CircuitDetailScreen(round: Int, onNavigateToResults: (Int, String) -> Unit, 
                                 android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://www.youtube.com/results?search_query=$query"))
                             }
                             Button(
-                                onClick = { 
-                                    onNavigateToResults(data.round, data.gp_name) 
-                                    // Di base il tasto apre sempre i risultati della gara domenicale
+                                    onClick = {
+                                        context.startActivity(highlightIntent)
                                 },
-                                modifier = Modifier.weight(1f).height(56.dp),
+                                modifier = Modifier.weight(1f).height(48.dp),
                                 shape = RoundedCornerShape(16.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.1f)),
                                 contentPadding = PaddingValues(0.dp)
@@ -1835,7 +1872,7 @@ fun FloatingBottomBar(currentScreen: AppScreen, previousScreenForStats: AppScree
 }
 
 @Composable
-fun HomeScreen(raceWeek: RaceWeekResponse?, isLoading: Boolean, articles: List<NewsArticleEntity>, onNavigate: (AppScreen) -> Unit) {
+fun HomeScreen(raceWeek: RaceWeekResponse?, isLoading: Boolean, articles: List<NewsArticleEntity>, onNavigate: (AppScreen) -> Unit, onNavigateToNews: (Int) -> Unit = {}) {
     val context = LocalContext.current
     val database = remember { FormulaDatabase.getDatabase(context) }
     val repository = remember { FormulaRepository(database) }
@@ -1970,10 +2007,10 @@ fun HomeScreen(raceWeek: RaceWeekResponse?, isLoading: Boolean, articles: List<N
             
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FullWidthGlassCard(title = "WEATHER", content = "$weatherIcon $temp", accentColor = Color(0xFF00FFCC), showChevron = false, modifier = Modifier.weight(0.43f), onClick = { onNavigate(AppScreen.WEATHER_DETAIL) })
-                FullWidthGlassCard(title = "UPDATES", content = "Tech report", accentColor = Color(0xFF00FFCC), showChevron = false, modifier = Modifier.weight(0.57f), onClick = { onNavigate(AppScreen.UPDATES_LIST) })
+                FullWidthGlassCard(title = "UPDATES", content = "Tech report", accentColor = Color(0xFF00FFCC), showChevron = true, modifier = Modifier.weight(0.57f), onClick = { onNavigate(AppScreen.UPDATES_LIST) })
             }
             
-            NewsBannerCarousel(articles)
+            NewsBannerCarousel(articles, onNewsClick = onNavigateToNews)
             Spacer(modifier = Modifier.height(20.dp))
         }
     }
@@ -2277,17 +2314,19 @@ fun TeamUpdateCard(name: String, colorHex: String, onClick: () -> Unit) {
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-fun NewsBannerCarousel(articles: List<NewsArticleEntity>) {
+fun NewsBannerCarousel(articles: List<NewsArticleEntity>, onNewsClick: (Int) -> Unit) {
     if (articles.isEmpty()) return
     
-    val displayArticles = articles.take(5)
-    val pagerState = rememberPagerState(pageCount = { displayArticles.size })
+    val displayArticles = articles.take(8)
+    val pageCount = 10000
+    val startIndex = pageCount / 2 - ((pageCount / 2) % displayArticles.size)
+    val pagerState = rememberPagerState(initialPage = startIndex, pageCount = { pageCount })
     val context = LocalContext.current
     
     LaunchedEffect(pagerState) {
         while(true) {
             kotlinx.coroutines.delay(5000)
-            val nextPage = (pagerState.currentPage + 1) % displayArticles.size
+            val nextPage = pagerState.currentPage + 1
             pagerState.animateScrollToPage(nextPage)
         }
     }
@@ -2297,73 +2336,535 @@ fun NewsBannerCarousel(articles: List<NewsArticleEntity>) {
         shape = RoundedCornerShape(12.dp),
         color = Color.White.copy(alpha = 0.03f)
     ) {
-        HorizontalPager(
-            state = pagerState,
-            modifier = Modifier.fillMaxSize()
-        ) { page ->
-            val article = displayArticles[page]
-            Box(modifier = Modifier.fillMaxSize().clickable {
-                val url = article.url
-                if (url.startsWith("http://") || url.startsWith("https://")) {
-                    val intent = CustomTabsIntent.Builder().setShowTitle(true).build()
-                    intent.launchUrl(context, Uri.parse(url))
-                }
-            }) {
-                AsyncImage(model = article.image_url, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize(), alpha = 0.4f)
-                Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.3f)))
-                
-                Row(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                    Column(modifier = Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.Center) {
-                        Text(text = article.source.uppercase(), color = Color(0xFF00FFCC), fontSize = 12.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic, letterSpacing = 0.5.sp)
-                        Text(text = article.title, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Box(modifier = Modifier.fillMaxSize()) {
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier.fillMaxSize()
+            ) { page ->
+                val articleIndex = page % displayArticles.size
+                val article = displayArticles[articleIndex]
+                Box(modifier = Modifier.fillMaxSize().clickable {
+                    onNewsClick(articleIndex)
+                }) {
+                    AsyncImage(model = article.image_url, contentDescription = null, contentScale = ContentScale.Crop, alignment = Alignment.TopCenter, modifier = Modifier.fillMaxSize(), alpha = 0.4f)
+                    Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.3f)))
+                    
+                    Row(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                        Column(modifier = Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.Center) {
+                            Text(text = article.source.uppercase(), color = Color(0xFF00FFCC), fontSize = 12.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic, letterSpacing = 0.5.sp)
+                            Text(text = article.title, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
                     }
-                    Icon(imageVector = Icons.Default.Feed, contentDescription = null, tint = Color.White.copy(alpha = 0.4f), modifier = Modifier.size(24.dp))
                 }
+            }
+            
+            // 3 Dots Indicator
+            Row(
+                modifier = Modifier.align(Alignment.TopEnd).padding(top = 10.dp, end = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                val currentArticleIndex = pagerState.currentPage % displayArticles.size
+                
+                val isFirstActive = currentArticleIndex == 0
+                val isLastActive = currentArticleIndex == displayArticles.lastIndex
+                val isMidActive = currentArticleIndex > 0 && currentArticleIndex < displayArticles.lastIndex
+                
+                Box(modifier = Modifier.size(if (isFirstActive) 5.dp else 4.dp).background(if (isFirstActive) Color(0xFF00FFCC) else Color.White.copy(alpha = 0.3f), CircleShape))
+                Box(modifier = Modifier.size(if (isMidActive) 5.dp else 4.dp).background(if (isMidActive) Color(0xFF00FFCC) else Color.White.copy(alpha = 0.3f), CircleShape))
+                Box(modifier = Modifier.size(if (isLastActive) 5.dp else 4.dp).background(if (isLastActive) Color(0xFF00FFCC) else Color.White.copy(alpha = 0.3f), CircleShape))
             }
         }
     }
 }
 
+@Composable
+fun AppSplashScreen() {
+    Box(modifier = Modifier.fillMaxSize().background(AppBackgroundGradientColor), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(Icons.Default.EmojiEvents, contentDescription = "Logo", tint = Color(0xFF00FFCC), modifier = Modifier.size(72.dp))
+            Spacer(modifier = Modifier.height(24.dp))
+            Text("FORMULA KNOWLEDGE", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic, letterSpacing = 1.sp)
+            Spacer(modifier = Modifier.height(16.dp))
+            CircularProgressIndicator(color = Color(0xFF00FFCC), modifier = Modifier.size(32.dp), strokeWidth = 3.dp)
+        }
+    }
+}
+
+@Composable
+fun OnboardingScreen(onSkip: () -> Unit, onGoogleSignIn: () -> Unit) {
+    Box(modifier = Modifier.fillMaxSize().background(AppBackgroundGradientColor)) {
+        // SALTA
+        Text(
+            text = "SALTA",
+            color = Color.White.copy(alpha = 0.6f),
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 48.dp, end = 24.dp)
+                .clickable { onSkip() }
+                .padding(8.dp)
+        )
+
+        // LOGO E TITOLO
+        Column(modifier = Modifier.align(Alignment.Center).offset(y = (-40).dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(Icons.Default.EmojiEvents, contentDescription = "Logo", tint = Color(0xFF00FFCC), modifier = Modifier.size(96.dp))
+            Spacer(modifier = Modifier.height(24.dp))
+            Text("FORMULA KNOWLEDGE", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic, letterSpacing = 1.sp)
+        }
+
+        // AREA INFERIORE (BOTTONE + LEGAL)
+        Column(
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 48.dp, start = 24.dp, end = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Button(
+                onClick = onGoogleSignIn,
+                modifier = Modifier.fillMaxWidth().height(54.dp),
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color.White)
+            ) {
+                Icon(Icons.Default.AccountCircle, contentDescription = "Google", tint = Color.Black)
+                Spacer(modifier = Modifier.width(12.dp))
+                Text("Accedi con Google", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            }
+            Spacer(modifier = Modifier.height(20.dp))
+            Text(
+                text = "Iscrivendoti, accetti i nostri Termini di utilizzo e Politica sulla Riservatezza.",
+                color = Color.White.copy(alpha = 0.4f),
+                fontSize = 11.sp,
+                textAlign = TextAlign.Center
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PersonalScreen() {
+    val context = LocalContext.current
+    val authViewModel: AuthViewModel = androidx.lifecycle.viewmodel.compose.viewModel(
+        factory = AuthViewModelFactory(context)
+    )
+    val uiState by authViewModel.uiState.collectAsState()
+
+   var showAuthScreen by remember { mutableStateOf(false) }
+
+    // Se l'utente fa l'accesso con successo, chiudiamo automaticamente la schermata di login
+    LaunchedEffect(uiState.isLoggedIn) {
+        if (uiState.isLoggedIn) {
+            showAuthScreen = false
+        }
+    }
+
+    if (showAuthScreen && !uiState.isLoggedIn) {
+        // --- SCHERMATA DI AUTENTICAZIONE DEDICATA ---
+        AuthScreenLayout(
+            uiState = uiState,
+            onDismiss = { showAuthScreen = false },
+            onAuthenticate = { email, pass, isRegister ->
+                authViewModel.authenticate(email, pass, isRegister)
+            }
+        )
+    }
+
+    // --- DASHBOARD PERSONALE (GUEST o UNLOCKED) ---
+    else {
+
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
         Spacer(modifier = Modifier.height(46.dp))
-        Text(text = "PERSONAL", color = Color.White, fontSize = 42.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic)
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text(text = "PROFILE DETAILS", color = Color.White.copy(alpha = 0.5f), fontSize = 18.sp, fontWeight = FontWeight.Bold)
-        }
-    }
-}
+        Text(text = "PERSONAL", color = Color.White, fontSize = 54.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic, letterSpacing = (-3).sp)
+        Text(text = "DASHBOARD", color = Color(0xFF00FFCC), fontSize = 38.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic, letterSpacing = (-2).sp, modifier = Modifier.offset(y = (-10).dp))
 
-@Composable
-fun StandingRow(pos: Int, name: String, points: String, subtitle: String? = null, height: androidx.compose.ui.unit.Dp = 72.dp, onClick: () -> Unit = {}) {
-    Surface(modifier = Modifier.fillMaxWidth().height(height).clickable { onClick() }, shape = RoundedCornerShape(12.dp), color = Color.White.copy(alpha = 0.03f)) {
-        Row(modifier = Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(text = pos.toString(), color = Color(0xFF00FFCC), fontSize = 20.sp, fontWeight = FontWeight.Black, modifier = Modifier.width(40.dp), lineHeight = 24.sp)
-            Column(modifier = Modifier.weight(1f)) {
-                Text(text = name, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, lineHeight = 20.sp)
-                if (!subtitle.isNullOrBlank()) {
-                    Text(text = subtitle.uppercase(), color = Color.White.copy(alpha = 0.4f), fontSize = 11.sp, fontWeight = FontWeight.Black, lineHeight = 13.sp)
+        Spacer(modifier = Modifier.height(24.dp))
+
+        if (!uiState.isLoggedIn) {
+            // --- GUEST VIEW (LOCKED) ---
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(24.dp),
+                color = Color.White.copy(alpha = 0.03f),
+                border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.1f))
+            ) {
+                Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(Icons.Default.Lock, contentDescription = "Locked", tint = Color(0xFF00FFCC), modifier = Modifier.size(48.dp))
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text("FUNZIONALITÀ BLOCCATE", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Black)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text("Accedi per sbloccare le preferenze scuderia, le notifiche personalizzate e il tuo profilo utente.", color = Color.White.copy(alpha = 0.6f), fontSize = 14.sp, textAlign = TextAlign.Center)
+                        
+                        Spacer(modifier = Modifier.height(24.dp))
+
+                    Button(
+                        onClick = { showAuthScreen = true },
+                        modifier = Modifier.fillMaxWidth().height(54.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00FFCC))
+                    ) {
+                        Text("ACCEDI ORA", color = Color.Black, fontWeight = FontWeight.Black, fontSize = 16.sp)
+                    }
                 }
             }
-            Text(text = points, color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic, lineHeight = 22.sp)
+            Spacer(modifier = Modifier.height(16.dp))
+            // --- VISTE BLOCCATE FINTIZZIE ---
+            LockedFeatureRow("SCUDERIA PREFERITA")
+            LockedFeatureRow("NOTIFICHE PUSH")
+            LockedFeatureRow("STATISTICHE PERSONALI")
+        } else {
+            // --- LOGGED IN VIEW (UNLOCKED) ---
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(24.dp),
+                color = Color.White.copy(alpha = 0.03f),
+                border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.1f))
+            ) {
+                Column(modifier = Modifier.padding(24.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Surface(shape = CircleShape, color = Color(0xFF00FFCC).copy(alpha = 0.15f), modifier = Modifier.size(64.dp)) {
+                            Icon(Icons.Default.Person, contentDescription = null, tint = Color(0xFF00FFCC), modifier = Modifier.padding(14.dp))
+                        }
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Column {
+                            Text("WELCOME BACK", color = Color.White.copy(alpha = 0.5f), fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                            if (uiState.isLoading || uiState.userProfile == null) {
+                                Text("Loading...", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic)
+                            } else {
+                                Text(uiState.userProfile?.email?.substringBefore("@") ?: "Driver", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic)
+                            }
+                        }
+                    }
+                    
+                    Spacer(modifier = Modifier.height(36.dp))
+                    Text("FAVORITE TEAM", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    
+                    // Placeholder selezione scuderia
+                    Surface(
+                        modifier = Modifier.fillMaxWidth().height(64.dp).clickable { /* TODO: Apri BottomSheet seleziona scuderia */ },
+                        shape = RoundedCornerShape(14.dp),
+                        color = Color(0xFFE32219).copy(alpha = 0.15f), // Ferrari Red placeholder (usare FavoriteTeam enum)
+                        border = BorderStroke(1.dp, Color(0xFFE32219).copy(alpha = 0.6f))
+                    ) {
+                        Row(modifier = Modifier.padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("FERRARI", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic)
+                            Icon(Icons.Default.Edit, contentDescription = "Change Team", tint = Color.White.copy(alpha = 0.6f))
+                        }
+                    }
+                    
+                    Spacer(modifier = Modifier.height(40.dp))
+                    Button(
+                            onClick = { authViewModel.logout() },
+                        modifier = Modifier.fillMaxWidth().height(54.dp),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.1f))
+                    ) {
+                        Text("LOG OUT", color = Color.White, fontWeight = FontWeight.Black, fontSize = 16.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+}
+
+@Composable
+fun LockedFeatureRow(title: String) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().height(64.dp).padding(vertical = 4.dp),
+        shape = RoundedCornerShape(12.dp),
+        color = Color.White.copy(alpha = 0.01f),
+        border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.05f))
+    ) {
+        Row(modifier = Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.Lock, contentDescription = null, tint = Color.White.copy(alpha = 0.2f), modifier = Modifier.size(20.dp))
+            Spacer(modifier = Modifier.width(16.dp))
+            Text(title, color = Color.White.copy(alpha = 0.3f), fontSize = 14.sp, fontWeight = FontWeight.Bold)
         }
     }
 }
 
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun NewsScreen(articles: List<NewsArticleEntity>) {
-    val pagerState = rememberPagerState(pageCount = { if (articles.isEmpty()) 1 else articles.size })
+fun AuthScreenLayout(
+    uiState: AuthUiState,
+    onDismiss: () -> Unit,
+    onAuthenticate: (String, String, Boolean) -> Unit
+) {
+    var email by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+
+    Column(
+        modifier = Modifier.fillMaxSize().background(AppBackgroundGradientColor)
+            .padding(horizontal = 20.dp)
+    ) {
+        Spacer(modifier = Modifier.height(20.dp))
+        IconButton(onClick = onDismiss, modifier = Modifier.offset(x = (-12).dp)) {
+            Icon(
+                Icons.Default.ArrowBack,
+                contentDescription = "Indietro",
+                tint = Color.White
+            )
+        }
+
+        Text(
+            text = "ACCEDI",
+            color = Color.White,
+            fontSize = 42.sp,
+            fontWeight = FontWeight.Black,
+            fontStyle = FontStyle.Italic
+        )
+        Spacer(modifier = Modifier.height(32.dp))
+
+        // --- GOOGLE BUTTON ---
+        Button(
+            onClick = { /* TODO: Integrazione SDK Google Sign-In */ },
+            modifier = Modifier.fillMaxWidth().height(54.dp),
+            shape = RoundedCornerShape(14.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Color.White)
+        ) {
+            // Placeholder per l'icona di Google
+            Icon(Icons.Default.AccountCircle, contentDescription = "Google", tint = Color.Black)
+            Spacer(modifier = Modifier.width(12.dp))
+            Text(
+                "Continua con Google",
+                color = Color.Black,
+                fontWeight = FontWeight.Bold,
+                fontSize = 16.sp
+            )
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // --- FACEBOOK BUTTON ---
+        Button(
+            onClick = { /* TODO: Integrazione SDK Facebook Login */ },
+            modifier = Modifier.fillMaxWidth().height(54.dp),
+            shape = RoundedCornerShape(14.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1877F2))
+        ) {
+            // Placeholder per l'icona di Facebook
+            Icon(Icons.Default.Public, contentDescription = "Facebook", tint = Color.White)
+            Spacer(modifier = Modifier.width(12.dp))
+            Text(
+                "Continua con Facebook",
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                fontSize = 16.sp
+            )
+        }
+
+        Spacer(modifier = Modifier.height(32.dp))
+
+        // --- DIVIDER "ALTRIMENTI" ---
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            HorizontalDivider(
+                modifier = Modifier.weight(1f),
+                color = Color.White.copy(alpha = 0.2f)
+            )
+            Text(
+                " altrimenti ",
+                color = Color.White.copy(alpha = 0.5f),
+                fontSize = 14.sp,
+                modifier = Modifier.padding(horizontal = 16.dp)
+            )
+            HorizontalDivider(
+                modifier = Modifier.weight(1f),
+                color = Color.White.copy(alpha = 0.2f)
+            )
+        }
+
+        Spacer(modifier = Modifier.height(32.dp))
+
+        // --- EMAIL & PASSWORD FORM ---
+        OutlinedTextField(
+            value = email,
+            onValueChange = { email = it },
+            label = { Text("Email Address") },
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = Color(0xFF00FFCC),
+                unfocusedBorderColor = Color.White.copy(alpha = 0.2f),
+                focusedTextColor = Color.White,
+                unfocusedTextColor = Color.White,
+                focusedLabelColor = Color(0xFF00FFCC),
+                unfocusedLabelColor = Color.White.copy(alpha = 0.5f)
+            ),
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp)
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+        OutlinedTextField(
+            value = password,
+            onValueChange = { password = it },
+            label = { Text("Password") },
+            visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = Color(0xFF00FFCC),
+                unfocusedBorderColor = Color.White.copy(alpha = 0.2f),
+                focusedTextColor = Color.White,
+                unfocusedTextColor = Color.White,
+                focusedLabelColor = Color(0xFF00FFCC),
+                unfocusedLabelColor = Color.White.copy(alpha = 0.5f)
+            ),
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp)
+        )
+
+        if (uiState.errorMessage != null) {
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                uiState.errorMessage,
+                color = Color(0xFFFF0033),
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+
+        Spacer(modifier = Modifier.height(32.dp))
+
+        // --- PULSANTI ACCEDI E REGISTRATI AFFIANCATI ---
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Button(
+                onClick = { onAuthenticate(email, password, false) },
+                modifier = Modifier.weight(1f).height(54.dp),
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00FFCC)),
+                enabled = !uiState.isLoading && email.isNotBlank() && password.isNotBlank()
+            ) {
+                if (uiState.isLoading) {
+                    CircularProgressIndicator(color = Color.Black, modifier = Modifier.size(24.dp))
+                } else {
+                    Text(
+                        "ACCEDI",
+                        color = Color.Black,
+                        fontWeight = FontWeight.Black,
+                        fontSize = 16.sp
+                    )
+                }
+            }
+
+            Button(
+                onClick = { onAuthenticate(email, password, true) },
+                modifier = Modifier.weight(1f).height(54.dp),
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.1f)),
+                enabled = !uiState.isLoading && email.isNotBlank() && password.isNotBlank()
+            ) {
+                Text(
+                    "REGISTRATI",
+                    color = Color.White,
+                    fontWeight = FontWeight.Black,
+                    fontSize = 16.sp
+                )
+            }
+        }
+    }
+}
+
+
+@Composable
+fun StandingRow(
+    pos: Int,
+    name: String,
+    points: String,
+    subtitle: String? = null,
+    height: androidx.compose.ui.unit.Dp = 72.dp,
+    onClick: () -> Unit = {}
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().height(height).clickable { onClick() },
+        shape = RoundedCornerShape(12.dp),
+        color = Color.White.copy(alpha = 0.03f)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = pos.toString(),
+                color = Color(0xFF00FFCC),
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Black,
+                modifier = Modifier.width(40.dp),
+                lineHeight = 24.sp
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = name,
+                    color = Color.White,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    lineHeight = 20.sp
+                )
+                if (!subtitle.isNullOrBlank()) {
+                    Text(
+                        text = subtitle.uppercase(),
+                        color = Color.White.copy(alpha = 0.4f),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Black,
+                        lineHeight = 13.sp
+                    )
+                }
+            }
+            Text(
+                text = points,
+                color = Color.White,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Black,
+                fontStyle = FontStyle.Italic,
+                lineHeight = 22.sp
+            )
+        }
+    }
+}
+
+@OptIn(
+    androidx.compose.foundation.ExperimentalFoundationApi::class,
+    androidx.compose.material3.ExperimentalMaterial3Api::class
+)
+@Composable
+fun NewsScreen(
+    articles: List<NewsArticleEntity>,
+    initialIndex: Int = 0,
+    isRefreshing: Boolean = false,
+    onRefresh: () -> Unit = {}
+) {
+    val pagerState = rememberPagerState(
+        initialPage = initialIndex,
+        pageCount = { if (articles.isEmpty()) 1 else articles.size })
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
+    val pullToRefreshState =
+        androidx.compose.material3.pulltorefresh.rememberPullToRefreshState()
 
     if (articles.isEmpty()) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Color(0xFF00FFCC)) }
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) { CircularProgressIndicator(color = Color(0xFF00FFCC)) }
         return
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    if (pullToRefreshState.isRefreshing) {
+        LaunchedEffect(true) {
+            onRefresh()
+        }
+    }
+
+    LaunchedEffect(isRefreshing) {
+        if (isRefreshing) {
+            pullToRefreshState.startRefresh()
+        } else {
+            pullToRefreshState.endRefresh()
+        }
+    }
+
+    Box(
+        modifier = Modifier.fillMaxSize()
+            .nestedScroll(pullToRefreshState.nestedScrollConnection)
+    ) {
         VerticalPager(
             state = pagerState,
             modifier = Modifier.fillMaxSize()
@@ -2374,31 +2875,79 @@ fun NewsScreen(articles: List<NewsArticleEntity>) {
                     model = article.image_url,
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
+                    alignment = Alignment.TopCenter,
                     modifier = Modifier.fillMaxSize().background(Color(0xFF121212))
                 )
-                
-                Box(modifier = Modifier.fillMaxWidth().height(450.dp).align(Alignment.BottomCenter).background(Brush.verticalGradient(colors = listOf(Color.Transparent, Color.Black))))
 
-                Column(modifier = Modifier.align(Alignment.BottomStart).padding(start = 24.dp, end = 24.dp, bottom = 130.dp)) {
-                    Text(text = article.title, color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.Black, lineHeight = 36.sp, fontStyle = FontStyle.Italic)
-                    Spacer(modifier = Modifier.height(20.dp))
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Bottom) {
-                        Column {
-                            Surface(color = Color(0xFF00FFCC).copy(alpha = 0.15f), shape = RoundedCornerShape(6.dp)) {
-                                Text(text = article.source.uppercase(), color = Color(0xFF00FFCC), fontSize = 11.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp))
-                            }
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(text = getTimeAgo(article.published_at), color = Color.White.copy(alpha = 0.6f), fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                // Gradiente molto più alto e marcato per sfumare dolcemente nell'interfaccia scura
+                Box(
+                    modifier = Modifier.fillMaxWidth().height(600.dp)
+                        .align(Alignment.BottomCenter).background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                Color.Transparent,
+                                Color.Black.copy(alpha = 0.9f),
+                                Color.Black
+                            )
+                        )
+                    )
+                )
+
+                Column(
+                    modifier = Modifier.align(Alignment.BottomStart)
+                        .padding(start = 24.dp, end = 80.dp, bottom = 110.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.Bottom) {
+                        Surface(
+                            color = Color(0xFF00FFCC).copy(alpha = 0.15f),
+                            shape = RoundedCornerShape(6.dp)
+                        ) {
+                            Text(
+                                text = article.source.uppercase(),
+                                color = Color(0xFF00FFCC),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Black,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                            )
                         }
-                        Button(onClick = { 
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = getTimeAgo(article.published_at),
+                            color = Color.White.copy(alpha = 0.6f),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(bottom = 5.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = article.title,
+                        color = Color.White,
+                        fontSize = 32.sp,
+                        fontWeight = FontWeight.Black,
+                        lineHeight = 36.sp,
+                        fontStyle = FontStyle.Italic
+                    )
+                    Spacer(modifier = Modifier.height(20.dp))
+                    Button(
+                        onClick = {
                             val url = article.url
                             if (url.startsWith("http://") || url.startsWith("https://")) {
-                                val intent = CustomTabsIntent.Builder().setShowTitle(true).build()
+                                val intent = CustomTabsIntent.Builder().build()
                                 intent.launchUrl(context, Uri.parse(url))
                             }
-                        }, colors = ButtonDefaults.buttonColors(containerColor = Color.White), shape = RoundedCornerShape(12.dp), modifier = Modifier.size(56.dp), contentPadding = PaddingValues(0.dp)) {
-                            Icon(Icons.Default.OpenInBrowser, contentDescription = "Read Full Article", tint = Color.Black, modifier = Modifier.size(28.dp))
-                        }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.White),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.height(42.dp),
+                        contentPadding = PaddingValues(horizontal = 16.dp)
+                    ) {
+                        Text(
+                            "READ FULL ARTICLE",
+                            color = Color.Black,
+                            fontWeight = FontWeight.Black,
+                            fontSize = 11.sp
+                        )
                     }
                 }
             }
@@ -2408,24 +2957,36 @@ fun NewsScreen(articles: List<NewsArticleEntity>) {
             visible = pagerState.currentPage > 0,
             enter = fadeIn() + scaleIn(),
             exit = fadeOut() + scaleOut(),
-            modifier = Modifier.align(Alignment.BottomEnd).padding(end = 24.dp, bottom = 206.dp)
+            modifier = Modifier.align(Alignment.BottomEnd).padding(end = 24.dp, bottom = 110.dp)
         ) {
             FloatingActionButton(
                 onClick = { coroutineScope.launch { pagerState.animateScrollToPage(0) } },
                 containerColor = Color(0xFF00FFCC),
                 contentColor = Color.Black,
                 shape = CircleShape,
-                modifier = Modifier.size(56.dp)
+                modifier = Modifier.size(42.dp)
             ) {
-                Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Torna su")
+                Icon(
+                    Icons.Default.KeyboardArrowUp,
+                    contentDescription = "Torna su",
+                    modifier = Modifier.size(24.dp)
+                )
             }
         }
+
+        androidx.compose.material3.pulltorefresh.PullToRefreshContainer(
+            state = pullToRefreshState,
+            modifier = Modifier.align(Alignment.TopCenter),
+            containerColor = Color(0xFF1E0A0A),
+            contentColor = Color(0xFF00FFCC)
+        )
     }
 }
 
 fun getTimeAgo(publishedAt: String): String {
     return try {
-        val format = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.getDefault())
+        val format =
+            java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.getDefault())
         format.timeZone = java.util.TimeZone.getTimeZone("UTC")
         val past = format.parse(publishedAt) ?: return ""
         val now = java.util.Date()
@@ -2439,5 +3000,7 @@ fun getTimeAgo(publishedAt: String): String {
             hours < 24 -> "$hours hours ago"
             else -> "$days days ago"
         }
-    } catch (e: Exception) { "" }
+    } catch (e: Exception) {
+        ""
+    }
 }

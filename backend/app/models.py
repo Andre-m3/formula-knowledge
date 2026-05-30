@@ -255,3 +255,21 @@ class NewsArticle(Base):
     url = Column(String, unique=True, nullable=False)
     image_url = Column(String, nullable=True)
     published_at = Column(DateTime, nullable=False)
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, unique=True, index=True, nullable=False)
+    # Nullable perché chi si logga con Google/Facebook non ha una password salvata qui!
+    hashed_password = Column(String, nullable=True) 
+    full_name = Column(String, nullable=True)
+    
+    # Per il login Social
+    auth_provider = Column(String, default="email") # può essere: "email", "google", "facebook"
+    provider_id = Column(String, nullable=True, unique=True) # ID univoco fornito da Google/FB
+    
+    # Preferenze Formula Knowledge
+    favorite_constructor_id = Column(String, nullable=True)
+    
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))

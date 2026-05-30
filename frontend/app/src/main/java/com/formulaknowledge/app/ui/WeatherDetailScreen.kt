@@ -87,19 +87,8 @@ fun WeatherDetailScreen(raceWeek: RaceWeekResponse?, raceWeekEntity: com.formula
                  }
              }
          } else {
-             var showError by remember { mutableStateOf(false) }
- 
-             LaunchedEffect(Unit) {
-                 delay(5000)
-                 showError = true
-             }
- 
              Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                 if (showError) {
-                     WeatherErrorState()
-                 } else {
-                     CircularProgressIndicator(color = Color(0xFF00FFCC))
-                 }
+                 WeatherErrorState()
              }
          }
      }
