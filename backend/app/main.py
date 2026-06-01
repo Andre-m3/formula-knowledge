@@ -78,21 +78,8 @@ class ConstructorSeasonStatsResponseSchema(BaseModel):
     last_updated: datetime
 
 # --- AUTH SCHEMAS ---
-class UserCreateSchema(BaseModel):
-    email: str
-    password: str
-    full_name: Optional[str] = None
-
-class UserLoginSchema(BaseModel):
-    email: str
-    password: str
-
-class TokenResponseSchema(BaseModel):
-    access_token: str
-    token_type: str
-
 class UserResponseSchema(BaseModel):
-    id: int
+    id: str
     email: str
     full_name: Optional[str] = None
     favorite_constructor_id: Optional[str] = None
@@ -104,11 +91,22 @@ from .services.weather_service import WeatherService
 from .services.calendar_service import CalendarService
 from .services.external_api_service import ExternalApiService
 from .core.config import settings
-from .auth import get_password_hash, verify_password, create_access_token, verify_access_token
+import firebase_admin
+from firebase_admin import credentials, auth as firebase_auth
+import os
 
 app = FastAPI(title="Formula Knowledge API")
 
 models.Base.metadata.create_all(bind=database.engine)
+
+# --- FIREBASE SETUP ---
+firebase_cred_path = os.path.join(os.path.dirname(__file__), "firebase-adminsdk.json")
+try:
+    if not firebase_admin._apps:
+        cred = credentials.Certificate(firebase_cred_path)
+        firebase_admin.initialize_app(cred)
+except Exception as e:
+    print(f"⚠️ ERRORE FIREBASE: Impossibile caricare {firebase_cred_path}. {e}")
 
 # --- SECURITY ---
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
@@ -119,18 +117,22 @@ async def get_api_key(api_key_header: str = Security(api_key_header)):
     return api_key_header
 
 # OAuth2 scheme per estrarre automaticamente il token JWT dall'header "Authorization"
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(database.get_db)):
-    payload = verify_access_token(token)
-    if not payload:
-        raise HTTPException(status_code=401, detail="Token non valido o scaduto")
-    user_id = payload.get("sub")
-    if user_id is None:
-        raise HTTPException(status_code=401, detail="Token non valido")
-    user = db.query(models.User).filter(models.User.id == int(user_id)).first()
+    try:
+        decoded_token = firebase_auth.verify_id_token(token)
+        firebase_uid = decoded_token.get("uid")
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=f"Token Firebase non valido: {str(e)}")
+        
+    user = db.query(models.User).filter(models.User.id == firebase_uid).first()
     if not user:
-        raise HTTPException(status_code=401, detail="Utente non trovato")
+        user = models.User(id=firebase_uid, device_token=f"pending_{firebase_uid}")
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        
     return user
 
 # --- SCHEMI ---
@@ -594,39 +596,13 @@ def get_latest_news(db: Session = Depends(database.get_db)):
 
 # --- AUTH ENDPOINTS ---
 
-@app.post("/api/v1/auth/register", response_model=TokenResponseSchema, dependencies=[Depends(get_api_key)])
-def register_user(user_data: UserCreateSchema, db: Session = Depends(database.get_db)):
-    # Verifica se l'email esiste già
-    existing_user = db.query(models.User).filter(models.User.email == user_data.email).first()
-    if existing_user:
-        raise HTTPException(status_code=400, detail="Email già registrata")
-    
-    # Crea e salva il nuovo utente
-    new_user = models.User(
-        email=user_data.email,
-        hashed_password=get_password_hash(user_data.password),
-        full_name=user_data.full_name,
-        auth_provider="email"
-    )
-    db.add(new_user)
-    db.commit()
-    db.refresh(new_user)
-    
-    # Genera il Token JWT
-    access_token = create_access_token(data={"sub": str(new_user.id)})
-    return {"access_token": access_token, "token_type": "bearer"}
-
-@app.post("/api/v1/auth/login", response_model=TokenResponseSchema, dependencies=[Depends(get_api_key)])
-def login_user(user_data: UserLoginSchema, db: Session = Depends(database.get_db)):
-    user = db.query(models.User).filter(models.User.email == user_data.email).first()
-    
-    # Verifica credenziali e assicura che l'utente non sia un utente social senza password
-    if not user or not user.hashed_password or not verify_password(user_data.password, user.hashed_password):
-        raise HTTPException(status_code=401, detail="Email o password non valide")
-        
-    access_token = create_access_token(data={"sub": str(user.id)})
-    return {"access_token": access_token, "token_type": "bearer"}
-
 @app.get("/api/v1/auth/me", response_model=UserResponseSchema, dependencies=[Depends(get_api_key)])
-def get_my_profile(current_user: models.User = Depends(get_current_user)):
-    return current_user
+def get_my_profile(current_user: models.User = Depends(get_current_user), token: str = Depends(oauth2_scheme)):
+    decoded_token = firebase_auth.verify_id_token(token)
+    return {
+        "id": current_user.id,
+        "email": decoded_token.get("email", "N/A"),
+        "full_name": decoded_token.get("name", "Tifoso"),
+        "favorite_constructor_id": current_user.favorite_team_id,
+        "auth_provider": decoded_token.get("firebase", {}).get("sign_in_provider", "unknown")
+    }

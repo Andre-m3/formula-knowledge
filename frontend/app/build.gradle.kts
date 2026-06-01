@@ -3,6 +3,7 @@ plugins {
     alias(libs.plugins.jetbrains.kotlin.android)
     alias(libs.plugins.compose.compiler)
     alias(libs.plugins.ksp)
+    id("com.google.gms.google-services")
 }
 
 android {
@@ -97,4 +98,13 @@ dependencies {
     // Coil per le Immagini da URL e Custom Tabs per Browser integrato
     implementation("io.coil-kt:coil-compose:2.6.0")
     implementation("androidx.browser:browser:1.8.0")
+
+    // Firebase & Google Sign-In
+    implementation(platform("com.google.firebase:firebase-bom:34.14.0"))
+    implementation("com.google.firebase:firebase-auth")
+    implementation("com.google.firebase:firebase-analytics")
+    
+    // Credential Manager per il nuovo standard di Google Sign-In su Android
+    implementation("androidx.credentials:credentials:1.2.2")
+    implementation("androidx.credentials:credentials-play-services-auth:1.2.2")
 }

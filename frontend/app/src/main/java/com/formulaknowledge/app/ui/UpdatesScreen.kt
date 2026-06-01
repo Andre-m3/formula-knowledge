@@ -218,7 +218,13 @@ fun UpdatesScreen() {
 
     // --- SPLASH SCREEN BLOCCANTE ---
     if (raceWeek == null) {
-        AppSplashScreen()
+        // TODO: Migliorare la UX per il primo avvio offline. (Fase 2)
+        // Se i dati non sono pronti, invece del caricamento infinito mostriamo di nuovo l'Onboarding.
+        // L'utente non potrà "saltare" finché non avrà scaricato i dati almeno una volta.
+        OnboardingScreen(
+            onSkip = { authViewModel.completeOnboarding() },
+            onGoogleSignIn = { authViewModel.completeOnboarding() }
+        )
         return
     }
 
