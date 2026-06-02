@@ -62,7 +62,7 @@ import com.formulaknowledge.app.data.*
 import com.formulaknowledge.app.utils.F1Utils
 import kotlinx.coroutines.launch
 
-enum class AppScreen { HOME, CALENDAR, PERSONAL, UPDATES_LIST, TEAM_DETAIL, WEATHER_DETAIL, RESULTS, STANDINGS, DRIVER_DETAIL, CONSTRUCTOR_DETAIL, RACE_SESSIONS, CIRCUIT_DETAIL, HEAD_TO_HEAD, HEAD_TO_HEAD_CONSTRUCTOR, NEWS }
+enum class AppScreen { HOME, CALENDAR, PERSONAL, UPDATES_LIST, TEAM_DETAIL, WEATHER_DETAIL, RESULTS, STANDINGS, DRIVER_DETAIL, CONSTRUCTOR_DETAIL, RACE_SESSIONS, CIRCUIT_DETAIL, HEAD_TO_HEAD, HEAD_TO_HEAD_CONSTRUCTOR, NEWS, PROFILE }
 
 val AppBackgroundGradientColor = Color(0xFF0B0E14)
 
@@ -86,7 +86,10 @@ fun UpdatesScreen() {
     if (!authUiState.hasSeenOnboarding) {
         OnboardingScreen(
             onSkip = { authViewModel.completeOnboarding() },
-            onGoogleSignIn = { authViewModel.completeOnboarding() /* TODO: Effettivo accesso Google in seguito */ }
+            onGoogleSignIn = { 
+                authViewModel.completeOnboarding() 
+                authViewModel.signInWithGoogle(context) 
+            }
         )
         return
     }
@@ -200,6 +203,7 @@ fun UpdatesScreen() {
             AppScreen.HEAD_TO_HEAD -> currentScreen = AppScreen.DRIVER_DETAIL
             AppScreen.HEAD_TO_HEAD_CONSTRUCTOR -> currentScreen = AppScreen.CONSTRUCTOR_DETAIL
             AppScreen.RACE_SESSIONS -> currentScreen = previousScreenForSessions
+                AppScreen.PROFILE -> currentScreen = AppScreen.PERSONAL
             else -> currentScreen = AppScreen.HOME
         }
     }
@@ -218,13 +222,7 @@ fun UpdatesScreen() {
 
     // --- SPLASH SCREEN BLOCCANTE ---
     if (raceWeek == null) {
-        // TODO: Migliorare la UX per il primo avvio offline. (Fase 2)
-        // Se i dati non sono pronti, invece del caricamento infinito mostriamo di nuovo l'Onboarding.
-        // L'utente non potrà "saltare" finché non avrà scaricato i dati almeno una volta.
-        OnboardingScreen(
-            onSkip = { authViewModel.completeOnboarding() },
-            onGoogleSignIn = { authViewModel.completeOnboarding() }
-        )
+        AppSplashScreen()
         return
     }
 
@@ -278,7 +276,8 @@ fun UpdatesScreen() {
                             currentScreen = AppScreen.CIRCUIT_DETAIL
                         }
                     )
-                    AppScreen.PERSONAL -> PersonalScreen()
+                    AppScreen.PERSONAL -> PersonalScreen(onNavigateToProfile = { currentScreen = AppScreen.PROFILE })
+                    AppScreen.PROFILE -> ProfileScreen(authUiState, onBack = { currentScreen = AppScreen.PERSONAL })
                 AppScreen.NEWS -> NewsScreen(newsEntities, selectedNewsIndex, isRefreshingNews, onRefresh = {
                     coroutineScope.launch {
                         isRefreshingNews = true
@@ -2398,19 +2397,33 @@ fun AppSplashScreen() {
 
 @Composable
 fun OnboardingScreen(onSkip: () -> Unit, onGoogleSignIn: () -> Unit) {
+    var isSkipping by remember { mutableStateOf(false) }
+
     Box(modifier = Modifier.fillMaxSize().background(AppBackgroundGradientColor)) {
         // SALTA
-        Text(
-            text = "SALTA",
-            color = Color.White.copy(alpha = 0.6f),
-            fontSize = 14.sp,
-            fontWeight = FontWeight.Bold,
+        Box(
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .padding(top = 48.dp, end = 24.dp)
-                .clickable { onSkip() }
+                .clickable { 
+                    if (!isSkipping) {
+                        isSkipping = true
+                        onSkip()
+                    }
+                }
                 .padding(8.dp)
-        )
+        ) {
+            if (isSkipping) {
+                CircularProgressIndicator(color = Color(0xFF00FFCC), modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+            } else {
+                Text(
+                    text = "SALTA",
+                    color = Color.White.copy(alpha = 0.6f),
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
 
         // LOGO E TITOLO
         Column(modifier = Modifier.align(Alignment.Center).offset(y = (-40).dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -2430,7 +2443,12 @@ fun OnboardingScreen(onSkip: () -> Unit, onGoogleSignIn: () -> Unit) {
                 shape = RoundedCornerShape(14.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = Color.White)
             ) {
-                Icon(Icons.Default.AccountCircle, contentDescription = "Google", tint = Color.Black)
+                val googleIconId = LocalContext.current.resources.getIdentifier("ic_google", "drawable", LocalContext.current.packageName)
+                if (googleIconId != 0) {
+                    Icon(painter = painterResource(id = googleIconId), contentDescription = "Google", tint = Color.Unspecified, modifier = Modifier.size(24.dp))
+                } else {
+                    Icon(Icons.Default.AccountCircle, contentDescription = "Google", tint = Color.Black)
+                }
                 Spacer(modifier = Modifier.width(12.dp))
                 Text("Accedi con Google", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 16.sp)
             }
@@ -2447,7 +2465,7 @@ fun OnboardingScreen(onSkip: () -> Unit, onGoogleSignIn: () -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PersonalScreen() {
+fun PersonalScreen(onNavigateToProfile: () -> Unit = {}) {
     val context = LocalContext.current
     val authViewModel: AuthViewModel = androidx.lifecycle.viewmodel.compose.viewModel(
         factory = AuthViewModelFactory(context)
@@ -2470,12 +2488,21 @@ fun PersonalScreen() {
             onDismiss = { showAuthScreen = false },
             onAuthenticate = { email, pass, isRegister ->
                 authViewModel.authenticate(email, pass, isRegister)
-            }
+            },
+            onGoogleSignIn = { authViewModel.signInWithGoogle(context) }
         )
     }
 
     // --- DASHBOARD PERSONALE (GUEST o UNLOCKED) ---
     else {
+        // Controllo: Se è loggato e non ha mai settato/skippato le preferenze, mostriamo il setup a tutto schermo
+        if (uiState.isLoggedIn && uiState.userProfile != null && !uiState.userProfile!!.preferences_set) {
+            PreferencesOnboardingScreen(
+                onSkip = { authViewModel.updatePreferences(null, null, null) },
+                onSave = { d1, d2, team -> authViewModel.updatePreferences(d1, d2, team) }
+            )
+            return
+        }
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
         Spacer(modifier = Modifier.height(46.dp))
@@ -2494,32 +2521,34 @@ fun PersonalScreen() {
             ) {
                 Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(Icons.Default.Lock, contentDescription = "Locked", tint = Color(0xFF00FFCC), modifier = Modifier.size(48.dp))
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text("FUNZIONALITÀ BLOCCATE", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Black)
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text("Accedi per sbloccare le preferenze scuderia, le notifiche personalizzate e il tuo profilo utente.", color = Color.White.copy(alpha = 0.6f), fontSize = 14.sp, textAlign = TextAlign.Center)
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text("FUNZIONALITÀ BLOCCATE", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Black)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text("Accedi per sbloccare le preferenze scuderia, le notifiche personalizzate, e tanto altro!", color = Color.White.copy(alpha = 0.6f), fontSize = 13.sp, textAlign = TextAlign.Center, lineHeight = 17.sp)
                         
-                        Spacer(modifier = Modifier.height(24.dp))
+                        Spacer(modifier = Modifier.height(16.dp))
 
                     Button(
-                        onClick = { showAuthScreen = true },
+                        onClick = { authViewModel.signInWithGoogle(context) },
                         modifier = Modifier.fillMaxWidth().height(54.dp),
                         shape = RoundedCornerShape(14.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00FFCC))
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.White)
                     ) {
-                        Text("ACCEDI ORA", color = Color.Black, fontWeight = FontWeight.Black, fontSize = 16.sp)
+                        val googleIconId = context.resources.getIdentifier("ic_google", "drawable", context.packageName)
+                        if (googleIconId != 0) {
+                            Icon(painter = painterResource(id = googleIconId), contentDescription = "Google", tint = Color.Unspecified, modifier = Modifier.size(24.dp))
+                        } else {
+                            Icon(Icons.Default.AccountCircle, contentDescription = "Google", tint = Color.Black)
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text("Accedi con Google", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                     }
                 }
             }
-            Spacer(modifier = Modifier.height(16.dp))
-            // --- VISTE BLOCCATE FINTIZZIE ---
-            LockedFeatureRow("SCUDERIA PREFERITA")
-            LockedFeatureRow("NOTIFICHE PUSH")
-            LockedFeatureRow("STATISTICHE PERSONALI")
         } else {
             // --- LOGGED IN VIEW (UNLOCKED) ---
             Surface(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().clickable { onNavigateToProfile() },
                 shape = RoundedCornerShape(24.dp),
                 color = Color.White.copy(alpha = 0.03f),
                 border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.1f))
@@ -2539,38 +2568,97 @@ fun PersonalScreen() {
                             }
                         }
                     }
-                    
-                    Spacer(modifier = Modifier.height(36.dp))
-                    Text("FAVORITE TEAM", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
-                    Spacer(modifier = Modifier.height(12.dp))
-                    
-                    // Placeholder selezione scuderia
-                    Surface(
-                        modifier = Modifier.fillMaxWidth().height(64.dp).clickable { /* TODO: Apri BottomSheet seleziona scuderia */ },
-                        shape = RoundedCornerShape(14.dp),
-                        color = Color(0xFFE32219).copy(alpha = 0.15f), // Ferrari Red placeholder (usare FavoriteTeam enum)
-                        border = BorderStroke(1.dp, Color(0xFFE32219).copy(alpha = 0.6f))
-                    ) {
-                        Row(modifier = Modifier.padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("FERRARI", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic)
-                            Icon(Icons.Default.Edit, contentDescription = "Change Team", tint = Color.White.copy(alpha = 0.6f))
-                        }
-                    }
-                    
-                    Spacer(modifier = Modifier.height(40.dp))
+                }
+            }
+        }
+
+        if (uiState.isLoggedIn) {
+            Spacer(modifier = Modifier.height(40.dp))
+            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                     Button(
                             onClick = { authViewModel.logout() },
-                        modifier = Modifier.fillMaxWidth().height(54.dp),
+                        modifier = Modifier.fillMaxWidth(0.6f).height(54.dp),
                         shape = RoundedCornerShape(14.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.1f))
                     ) {
                         Text("LOG OUT", color = Color.White, fontWeight = FontWeight.Black, fontSize = 16.sp)
                     }
-                }
             }
         }
     }
 }
+}
+
+@Composable
+fun ProfileScreen(uiState: AuthUiState, onBack: () -> Unit) {
+    val profile = uiState.userProfile ?: return
+    
+    // Tema basato sulla scuderia preferita (o colore default)
+    val defaultAccent = Color(0xFF00FFCC)
+    val teamColor = profile.favorite_constructor_id?.let { 
+        val color = F1Utils.getTeamColor(it)
+        if (color == Color.Gray) defaultAccent else color 
+    } ?: defaultAccent
+
+    Column(modifier = Modifier.fillMaxSize().background(AppBackgroundGradientColor).padding(horizontal = 20.dp)) {
+        Spacer(modifier = Modifier.height(20.dp))
+        IconButton(onClick = onBack, modifier = Modifier.offset(x = (-12).dp)) {
+            Icon(Icons.Default.ArrowBack, contentDescription = "Indietro", tint = Color.White)
+        }
+        
+        Spacer(modifier = Modifier.height(20.dp))
+        
+        // Avatar
+        Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            Surface(
+                shape = CircleShape, 
+                color = teamColor.copy(alpha = 0.15f), 
+                modifier = Modifier.size(110.dp),
+                border = BorderStroke(2.dp, teamColor.copy(alpha = 0.5f))
+            ) {
+                Icon(Icons.Default.Person, contentDescription = null, tint = teamColor, modifier = Modifier.padding(24.dp))
+            }
+        }
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        // Nickname e F1 Tag
+        Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(text = profile.full_name ?: "Pilota", color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic)
+            if (profile.f1_tag != null) {
+                Text(text = "@${profile.f1_tag}", color = Color.White.copy(alpha = 0.5f), fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+
+        Spacer(modifier = Modifier.height(48.dp))
+        Text("LE TUE PREFERENZE", color = teamColor, fontSize = 14.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Riga Preferenze (Team e Piloti)
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            PreferenceMiniCard("SCUDERIA", profile.favorite_constructor_id, true, teamColor, Modifier.weight(1f))
+            PreferenceMiniCard("1° PILOTA", profile.favorite_driver1_id, false, teamColor, Modifier.weight(1f))
+            PreferenceMiniCard("2° PILOTA", profile.favorite_driver2_id, false, teamColor, Modifier.weight(1f))
+        }
+    }
+}
+
+@Composable
+fun PreferenceMiniCard(title: String, id: String?, isTeam: Boolean, themeColor: Color, modifier: Modifier = Modifier) {
+    val displayName = if (isTeam) id?.let { getConstructorDisplayName(it) } else id?.let { it.split("_").last().uppercase() }
+
+    Surface(
+        modifier = modifier.aspectRatio(1f),
+        shape = RoundedCornerShape(16.dp),
+        color = themeColor.copy(alpha = 0.05f),
+        border = BorderStroke(1.dp, themeColor.copy(alpha = 0.3f))
+    ) {
+        Column(modifier = Modifier.fillMaxSize().padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+            Text(title, color = themeColor.copy(alpha = 0.7f), fontSize = 10.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center)
+            Spacer(modifier = Modifier.height(12.dp))
+            if (displayName != null) { Text(displayName, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center, lineHeight = 14.sp) } else { Text("-", color = Color.White.copy(alpha = 0.3f), fontSize = 24.sp, fontWeight = FontWeight.Black) }
+        }
+    }
 }
 
 @Composable
@@ -2594,7 +2682,8 @@ fun LockedFeatureRow(title: String) {
 fun AuthScreenLayout(
     uiState: AuthUiState,
     onDismiss: () -> Unit,
-    onAuthenticate: (String, String, Boolean) -> Unit
+    onAuthenticate: (String, String, Boolean) -> Unit,
+    onGoogleSignIn: () -> Unit
 ) {
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -2623,7 +2712,7 @@ fun AuthScreenLayout(
 
         // --- GOOGLE BUTTON ---
         Button(
-            onClick = { /* TODO: Integrazione SDK Google Sign-In */ },
+            onClick = { onGoogleSignIn() },
             modifier = Modifier.fillMaxWidth().height(54.dp),
             shape = RoundedCornerShape(14.dp),
             colors = ButtonDefaults.buttonColors(containerColor = Color.White)

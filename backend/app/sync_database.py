@@ -9,6 +9,7 @@ from .seed_season_stats import seed_season
 from .seed_driver_stats import seed_driver_stats
 from .seed_constructor_stats import seed_constructor_stats
 from .update_champs import fix_world_championships
+from .rss_scraper import run_scraper
 
 def run_master_sync():
     print("\n=======================================================")
@@ -39,6 +40,10 @@ def run_master_sync():
     db.query(ConstructorStandingCache).delete()
     db.commit()
     db.close()
+    
+    # 5. Sincronizzazione Feed RSS (Per aggiornare le notizie post-gara)
+    print("\n--> 5. SINCRONIZZAZIONE FEED RSS...")
+    run_scraper()
 
     print("\n=======================================================")
     print("✅ SINCRONIZZAZIONE MASTER COMPLETATA CON SUCCESSO!")

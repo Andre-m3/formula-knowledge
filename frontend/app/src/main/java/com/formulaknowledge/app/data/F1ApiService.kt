@@ -1,6 +1,7 @@
 package com.formulaknowledge.app.data
 
 import retrofit2.http.GET
+import retrofit2.http.PUT
 import retrofit2.http.POST
 import retrofit2.http.Path
 import retrofit2.http.Body
@@ -46,12 +47,28 @@ interface F1ApiService {
     @GET("api/v1/news")
     suspend fun getLatestNews(): List<NewsArticleResponse>
 
-    @POST("api/v1/auth/login")
-    suspend fun login(@Body request: UserLoginRequest): TokenResponse
-
-    @POST("api/v1/auth/register")
-    suspend fun register(@Body request: UserRegisterRequest): TokenResponse
-
     @GET("api/v1/auth/me")
     suspend fun getMyProfile(@Header("Authorization") authHeader: String): UserProfileResponse
+
+    @PUT("api/v1/auth/preferences")
+    suspend fun updatePreferences(@Header("Authorization") authHeader: String, @Body request: UpdatePreferencesRequest): UserProfileResponse
 }
+
+data class UpdatePreferencesRequest(
+    val favorite_team_id: String?,
+    val favorite_driver1_id: String?,
+    val favorite_driver2_id: String?,
+    val preferences_set: Boolean
+)
+
+data class UserProfileResponse(
+    val id: String,
+    val email: String,
+    val full_name: String?,
+    val f1_tag: String?,
+    val favorite_constructor_id: String?,
+    val favorite_driver1_id: String?,
+    val favorite_driver2_id: String?,
+    val preferences_set: Boolean,
+    val auth_provider: String
+)

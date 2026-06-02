@@ -259,17 +259,19 @@ class NewsArticle(Base):
 class User(Base):
     __tablename__ = "users"
 
-    id = Column(Integer, primary_key=True, index=True)
-    email = Column(String, unique=True, index=True, nullable=False)
-    # Nullable perché chi si logga con Google/Facebook non ha una password salvata qui!
-    hashed_password = Column(String, nullable=True) 
-    full_name = Column(String, nullable=True)
+    # L'ID ora è la stringa univoca fornita da Firebase
+    id = Column(String, primary_key=True, index=True)
     
-    # Per il login Social
-    auth_provider = Column(String, default="email") # può essere: "email", "google", "facebook"
-    provider_id = Column(String, nullable=True, unique=True) # ID univoco fornito da Google/FB
+    # Dati Profilo
+    f1_tag = Column(String, unique=True, index=True, nullable=True)
+    display_name = Column(String, nullable=True)
+
+    # Relazione FK verso i Team (Scuderia Preferita)
+    favorite_team_id = Column(Integer, ForeignKey("teams.id"), nullable=True)
+    favorite_driver1_id = Column(Integer, ForeignKey("drivers.id"), nullable=True)
+    favorite_driver2_id = Column(Integer, ForeignKey("drivers.id"), nullable=True)
+    preferences_set = Column(Boolean, default=False) # Indica se l'utente ha completato la configurazione delle preferenze
     
-    # Preferenze Formula Knowledge
-    favorite_constructor_id = Column(String, nullable=True)
-    
+    favorite_team = relationship("Team")
+
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))

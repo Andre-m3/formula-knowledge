@@ -197,6 +197,8 @@ def seed_database():
             db.add(driver)
 
         print("Popolamento tabella Races...")
+        # TODO: In futuro, quando passeremo a PostgreSQL, inseriremo l'intero calendario
+        # in modo hardcodato (comprese le date di FP1, FP2, ecc.) per rimuovere la dipendenza da Jolpica.
         calendar_service = CalendarService()
         schedule_data = ExternalApiService.get_schedule(year=2026)
         for race_data in calendar_service.races:

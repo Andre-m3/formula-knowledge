@@ -5,14 +5,22 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.formulaknowledge.app.data.F1ApiService
+import retrofit2.HttpException
+import android.util.Log
 import com.formulaknowledge.app.data.RetrofitClient
+import com.formulaknowledge.app.data.UpdatePreferencesRequest
 import com.formulaknowledge.app.data.TokenManager
-import com.formulaknowledge.app.data.UserLoginRequest
 import com.formulaknowledge.app.data.UserProfileResponse
-import com.formulaknowledge.app.data.UserRegisterRequest
+import androidx.credentials.CredentialManager
+import androidx.credentials.CustomCredential
+import androidx.credentials.GetCredentialRequest
+import com.google.android.libraries.identity.googleid.GetGoogleIdOption
+import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.GoogleAuthProvider
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.launch
 
 data class AuthUiState(
@@ -46,10 +54,17 @@ class AuthViewModel(
 
     private fun checkSavedToken() {
         viewModelScope.launch {
-            val token = tokenManager.tokenFlow.firstOrNull()
-            if (!token.isNullOrEmpty()) {
-                _uiState.value = _uiState.value.copy(isLoggedIn = true, isLoading = true)
-                fetchProfile(token)
+            val currentUser = FirebaseAuth.getInstance().currentUser
+            if (currentUser != null) {
+                try {
+                    val tokenResult = currentUser.getIdToken(false).await()
+                    val token = tokenResult.token ?: return@launch
+                    tokenManager.saveToken(token) // Lo salviamo localmente per le API
+                    _uiState.value = _uiState.value.copy(isLoggedIn = true, isLoading = true)
+                    fetchProfile(token)
+                } catch (e: Exception) {
+                    logout()
+                }
             }
         }
     }
@@ -64,16 +79,51 @@ class AuthViewModel(
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, errorMessage = null)
             try {
-                val response = if (isRegister) {
-                    apiService.register(UserRegisterRequest(email, pass, full_name = "Tifoso"))
+                val auth = FirebaseAuth.getInstance()
+                val authResult = if (isRegister) {
+                    auth.createUserWithEmailAndPassword(email, pass).await()
                 } else {
-                    apiService.login(UserLoginRequest(email, pass))
+                    auth.signInWithEmailAndPassword(email, pass).await()
                 }
-                tokenManager.saveToken(response.access_token)
+                val token = authResult.user?.getIdToken(false)?.await()?.token ?: throw Exception("Token nullo")
+                tokenManager.saveToken(token)
                 _uiState.value = _uiState.value.copy(isLoggedIn = true, isLoading = false)
-                fetchProfile(response.access_token)
+                fetchProfile(token)
             } catch (e: Exception) {
-                _uiState.value = _uiState.value.copy(isLoading = false, errorMessage = if (isRegister) "Registrazione fallita." else "Credenziali errate.")
+                _uiState.value = _uiState.value.copy(isLoading = false, errorMessage = e.localizedMessage ?: "Errore di autenticazione")
+            }
+        }
+    }
+
+    fun signInWithGoogle(context: Context) {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isLoading = true, errorMessage = null)
+            try {
+                val credentialManager = CredentialManager.create(context)
+                val webClientId = context.getString(context.resources.getIdentifier("default_web_client_id", "string", context.packageName))
+                
+                val googleIdOption = GetGoogleIdOption.Builder()
+                    .setFilterByAuthorizedAccounts(false)
+                    .setServerClientId(webClientId)
+                    .setAutoSelectEnabled(true)
+                    .build()
+                    
+                val request = GetCredentialRequest.Builder().addCredentialOption(googleIdOption).build()
+                val result = credentialManager.getCredential(context, request)
+                
+                if (result.credential is CustomCredential && result.credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
+                    val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(result.credential.data)
+                    val firebaseCredential = GoogleAuthProvider.getCredential(googleIdTokenCredential.idToken, null)
+                    
+                    val authResult = FirebaseAuth.getInstance().signInWithCredential(firebaseCredential).await()
+                    val firebaseToken = authResult.user?.getIdToken(false)?.await()?.token ?: throw Exception("Token Firebase nullo")
+                    
+                    tokenManager.saveToken(firebaseToken)
+                    _uiState.value = _uiState.value.copy(isLoggedIn = true, isLoading = false)
+                    fetchProfile(firebaseToken)
+                }
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(isLoading = false, errorMessage = "Accesso Google annullato o non riuscito.")
             }
         }
     }
@@ -83,14 +133,35 @@ class AuthViewModel(
             val profile = apiService.getMyProfile("Bearer $token")
             _uiState.value = _uiState.value.copy(userProfile = profile, isLoading = false)
         } catch (e: Exception) {
-            logout() // Se il token è scaduto, sloggiamo l'utente
+            Log.e("AuthViewModel", "Errore nel caricamento del profilo", e)
+            if (e is HttpException && e.code() == 401) {
+                logout() // Sloggiamo solo se il token è effettivamente invalido/scaduto (401 Unauthorized)
+            } else {
+                _uiState.value = _uiState.value.copy(isLoading = false, errorMessage = "Profilo non caricato")
+            }
+        }
+    }
+
+    fun updatePreferences(driver1: String?, driver2: String?, team: String?) {
+        viewModelScope.launch {
+            try {
+                val tokenResult = FirebaseAuth.getInstance().currentUser?.getIdToken(false)?.await()
+                val token = tokenResult?.token ?: return@launch
+                
+                val request = UpdatePreferencesRequest(team, driver1, driver2, true)
+                val updatedProfile = apiService.updatePreferences("Bearer $token", request)
+                _uiState.value = _uiState.value.copy(userProfile = updatedProfile)
+            } catch (e: Exception) {
+                Log.e("AuthViewModel", "Errore aggiornamento preferenze", e)
+            }
         }
     }
 
     fun logout() {
         viewModelScope.launch {
+            FirebaseAuth.getInstance().signOut()
             tokenManager.clearToken()
-            _uiState.value = AuthUiState() // Reset dello stato a "Sloggato"
+            _uiState.value = AuthUiState(hasSeenOnboarding = _uiState.value.hasSeenOnboarding, isCheckingOnboarding = false)
         }
     }
 }

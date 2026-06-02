@@ -51,13 +51,13 @@ def fetch_with_retry(url):
             if res.status_code == 200:
                 return res
             elif res.status_code == 429:
-                print("Rate limit API raggiunto. Attendo 6 secondi e riprovo...")
-                time.sleep(6)
+                print("Rate limit API raggiunto. Attendo 10 secondi e riprovo...")
+                time.sleep(10)
             else:
                 break
         except Exception as e:
-            print(f"Eccezione HTTP ({e}). Attendo 6 secondi e riprovo...")
-            time.sleep(6)
+            print(f"Eccezione HTTP ({e}). Attendo 10 secondi e riprovo...")
+            time.sleep(10)
     return None
 
 def get_driver_stats(driver_id: str):
