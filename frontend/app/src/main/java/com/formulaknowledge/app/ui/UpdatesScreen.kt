@@ -136,6 +136,7 @@ fun UpdatesScreen() {
     var previousScreenForSessions by remember { mutableStateOf(AppScreen.HOME) }
     var selectedNewsIndex by remember { mutableIntStateOf(0) }
     var isRefreshingNews by remember { mutableStateOf(false) }
+    var isInitialDataReady by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
 
     var showNotReadyDialog by remember { mutableStateOf(false) }
@@ -211,19 +212,21 @@ fun UpdatesScreen() {
     }
 
     LaunchedEffect(Unit) {
-        // Ordine Ottimizzato:
-        // 1) Dati della settimana corrente (Priorità per la Home)
-        launch { repository.refreshCurrentRaceWeek() }
-        // 2) Classifiche e Stats massivo in background
+        // Prima aggiorniamo i dati essenziali: così la cache precedente non viene
+        // mostrata per un istante come se fosse il prossimo GP corrente.
+        val currentRaceWeekRefresh = launch { repository.refreshCurrentRaceWeek() }
+        val calendarRefresh = launch { repository.refreshCalendar() }
+        currentRaceWeekRefresh.join()
+        calendarRefresh.join()
+        isInitialDataReady = true
+
+        // Classifiche, statistiche e news restano caricamenti secondari.
         launch { repository.refreshStandings() }
-        // 3) Calendario e circuiti
-        launch { repository.refreshCalendar() }
-        // 4) Fetch articoli RSS
         launch { repository.refreshNews() }
     }
 
     // --- SPLASH SCREEN BLOCCANTE ---
-    if (raceWeek == null) {
+    if (!isInitialDataReady || raceWeek == null) {
         AppSplashScreen()
         return
     }
@@ -504,7 +507,7 @@ fun CircuitDetailScreen(round: Int, onNavigateToResults: (Int, String) -> Unit, 
                         
                         val rawGpName = data.gp_name.uppercase().replace("GRAND PRIX", "").trim()
                         var displayGpName = "$rawGpName GP"
-                        if (displayGpName.length > 11) { // "JAPANESE GP" è 11 caratteri
+                        if (displayGpName.length > 11) { // Usa il nome del Paese quando il nome breve è troppo lungo
                             displayGpName = data.country.uppercase()
                         }
 
@@ -542,9 +545,9 @@ fun CircuitDetailScreen(round: Int, onNavigateToResults: (Int, String) -> Unit, 
                         CircuitTechnicalCard(
                             round = data.round,
                             circuitName = data.circuit_name,
-                            laps = data.laps,
+                            laps = data.laps.toString(),
                             length = data.length,
-                            corners = data.corners
+                            corners = data.corners.toString()
                         )
                     }
                     
@@ -1884,8 +1887,6 @@ fun HomeScreen(raceWeek: RaceWeekResponse?, isLoading: Boolean, articles: List<N
     val context = LocalContext.current
     val database = remember { FormulaDatabase.getDatabase(context) }
     val repository = remember { FormulaRepository(database) }
-    val roundNumber = raceWeek?.round_number ?: 0
-
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
         Spacer(modifier = Modifier.height(26.dp)) 
         Box(modifier = Modifier.fillMaxWidth().height(160.dp), contentAlignment = Alignment.BottomStart) {
@@ -1943,32 +1944,32 @@ fun HomeScreen(raceWeek: RaceWeekResponse?, isLoading: Boolean, articles: List<N
 
             if (isLoading) {
                 Box(modifier = Modifier.fillMaxWidth().height(100.dp).background(Color.White.copy(alpha = 0.05f), RoundedCornerShape(12.dp)))
-            } else {
+            } else if (raceWeek != null) {
                 Column {
-                    val rawGpName = raceWeek?.gp_name?.uppercase()?.replace("GRAND PRIX", "")?.trim() ?: "JAPANESE"
+                    val rawGpName = raceWeek.gp_name.uppercase().replace("GRAND PRIX", "").trim()
                     var displayGpName = "$rawGpName GP"
                     if (displayGpName.length > 11) {
-                        displayGpName = raceWeek?.country?.uppercase() ?: rawGpName
+                        displayGpName = raceWeek.country.uppercase()
                     }
                     
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Surface(color = Color(0xFF00FFCC), shape = RoundedCornerShape(4.dp)) {
-                            Text(text = "R${raceWeek?.round_number ?: "3"}", color = Color.Black, fontSize = 14.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp))
+                            Text(text = "R${raceWeek.round_number}", color = Color.Black, fontSize = 14.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp))
                         }
                         Spacer(modifier = Modifier.width(10.dp))
                             Text(text = "NEXT EVENT", color = Color.White.copy(alpha = 0.5f), fontSize = 16.sp, fontWeight = FontWeight.Bold)
                     }
                     Text(text = displayGpName, color = Color.White, fontSize = 58.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic, letterSpacing = (-5).sp, maxLines = 1, softWrap = false)
                     
-                    val dates = raceWeek?.dates
+                    val dates = raceWeek.dates
                     val dateRangeStr = if (!dates.isNullOrEmpty() && dates.size >= 3) {
                         val startDay = dates[0].substringBefore(" ").trimStart('0')
                         val endDay = dates[2].substringBefore(" ").trimStart('0')
                         val month = dates[2].substringAfter(" ").uppercase()
                         "$startDay-$endDay $month"
-                    } else { "3-5 APRIL" }
-                    val cityStr = raceWeek?.city?.uppercase() ?: "SUZUKA"
-                    val countryStr = raceWeek?.country ?: "Japan"
+                    } else { "--" }
+                    val cityStr = raceWeek.city.uppercase()
+                    val countryStr = raceWeek.country
                     val locationStr = "$cityStr ($countryStr)".replace("MONTE CARLO", "MONTECARLO")
                     Text(
                         text = "$dateRangeStr \u2022 $locationStr", 
@@ -1982,18 +1983,23 @@ fun HomeScreen(raceWeek: RaceWeekResponse?, isLoading: Boolean, articles: List<N
                         overflow = TextOverflow.Ellipsis
                     )
                 }
+            } else {
+                Box(modifier = Modifier.fillMaxWidth().height(100.dp), contentAlignment = Alignment.CenterStart) {
+                    Text(text = "RACE DATA UNAVAILABLE", color = Color.White.copy(alpha = 0.5f), fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                }
             }
         }
         
         Spacer(modifier = Modifier.height(26.dp)) 
         
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) { 
-            val circuitName = raceWeek?.circuit_name ?: "CIRCUIT"
-            val laps = raceWeek?.laps ?: 0
-            val length = raceWeek?.circuit_length ?: "0 km"
-            val corners = raceWeek?.corners ?: 0
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (raceWeek != null) {
+            val circuitName = raceWeek.circuit_name ?: "--"
+            val laps = raceWeek.laps?.toString() ?: "--"
+            val length = raceWeek.circuit_length ?: "--"
+            val corners = raceWeek.corners?.toString() ?: "--"
                 CircuitTechnicalCard(
-                    round = roundNumber,
+                    round = raceWeek.round_number,
                     circuitName = circuitName,
                     laps = laps,
                     length = length,
@@ -2003,8 +2009,8 @@ fun HomeScreen(raceWeek: RaceWeekResponse?, isLoading: Boolean, articles: List<N
             FullWidthGlassCard(title = "RACE SESSIONS", content = "See all weekend schedule", accentColor = Color(0xFF00FFCC), isHighlighted = true, onClick = { onNavigate(AppScreen.RACE_SESSIONS) })
             
             // Ora mostriamo se sta caricando o se i dati non sono disponibili
-            val weatherStatus = raceWeek?.weather_forecast?.status ?: if (isLoading) "Loading..." else "Not Available"
-            val temp = raceWeek?.weather_forecast?.temp ?: if (isLoading) "--" else "N/A"
+            val weatherStatus = raceWeek.weather_forecast?.status ?: if (isLoading) "Loading..." else "Not Available"
+            val temp = raceWeek.weather_forecast?.temp ?: if (isLoading) "--" else "N/A"
             val weatherIcon = when {
                 weatherStatus.contains("Sunny") || weatherStatus.contains("Clear") -> "\u2600\ufe0f" // Ora il sereno mostra il sole!
                 weatherStatus.contains("Cloudy") -> "\u26c5"
@@ -2016,6 +2022,11 @@ fun HomeScreen(raceWeek: RaceWeekResponse?, isLoading: Boolean, articles: List<N
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FullWidthGlassCard(title = "WEATHER", content = "$weatherIcon $temp", accentColor = Color(0xFF00FFCC), showChevron = false, modifier = Modifier.weight(0.43f), onClick = { onNavigate(AppScreen.WEATHER_DETAIL) })
                 FullWidthGlassCard(title = "UPDATES", content = "Tech report", accentColor = Color(0xFF00FFCC), showChevron = true, modifier = Modifier.weight(0.57f), onClick = { onNavigate(AppScreen.UPDATES_LIST) })
+            }
+            } else {
+                Box(modifier = Modifier.fillMaxWidth().height(180.dp), contentAlignment = Alignment.Center) {
+                    Text(text = "RACE DATA UNAVAILABLE", color = Color.White.copy(alpha = 0.5f), fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                }
             }
             
             NewsBannerCarousel(articles, onNewsClick = onNavigateToNews)
@@ -2171,7 +2182,7 @@ fun FocusOnTrackCard(round: Int, city: String, modifier: Modifier) {
 }
 
 @Composable
-fun CircuitTechnicalCard(round: Int, circuitName: String, laps: Int, length: String, corners: Int) {
+fun CircuitTechnicalCard(round: Int, circuitName: String, laps: String, length: String, corners: String) {
     val context = LocalContext.current
     Surface(
         modifier = Modifier.fillMaxWidth().height(180.dp),

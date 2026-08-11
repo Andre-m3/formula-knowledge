@@ -1,6 +1,7 @@
 import requests
 import time
 from datetime import datetime
+from ..core.config import settings
 
 class ExternalApiService:
     _cache = {}
@@ -26,7 +27,7 @@ class ExternalApiService:
         return name
 
     @classmethod
-    def get_calendar(cls, year: int = 2026):
+    def get_calendar(cls, year: int = settings.F1_SEASON):
         cache_key = f"calendar_{year}"
         cached = cls._get_cached(cache_key)
         if cached: return cached
@@ -59,7 +60,7 @@ class ExternalApiService:
             return []
 
     @classmethod
-    def get_schedule(cls, year: int = 2026):
+    def get_schedule(cls, year: int = settings.F1_SEASON):
         cache_key = f"schedule_{year}"
         cached = cls._get_cached(cache_key)
         if cached: return cached
@@ -100,7 +101,7 @@ class ExternalApiService:
             return {}
 
     @classmethod
-    def get_driver_standings(cls, year: int = 2026):
+    def get_driver_standings(cls, year: int = settings.F1_SEASON):
         cache_key = f"driver_standings_{year}"
         cached = cls._get_cached(cache_key)
         if cached:
@@ -141,7 +142,7 @@ class ExternalApiService:
             return []
 
     @classmethod
-    def get_constructor_standings(cls, year: int = 2026):
+    def get_constructor_standings(cls, year: int = settings.F1_SEASON):
         cache_key = f"constructor_standings_{year}"
         cached = cls._get_cached(cache_key)
         if cached:
@@ -175,7 +176,7 @@ class ExternalApiService:
             return []
 
     @classmethod
-    def get_session_results(cls, round_number: int, session_type: str, year: int = 2026):
+    def get_session_results(cls, round_number: int, session_type: str, year: int = settings.F1_SEASON):
         cache_key = f"session_results_{year}_{round_number}_{session_type}"
         cached = cls._get_cached(cache_key)
         if cached:

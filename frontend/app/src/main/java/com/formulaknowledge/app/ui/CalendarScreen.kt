@@ -161,21 +161,31 @@ fun CalendarRaceCard(race: CalendarResponse, onClick: () -> Unit) {
         
         if (!isCancelled) {
             Column(horizontalAlignment = Alignment.End, modifier = Modifier.fillMaxHeight(), verticalArrangement = Arrangement.Center) {
-                val dateObj = try { LocalDate.parse(race.date) } catch(e: Exception) { LocalDate.now() }
-                Text(
-                    text = dateObj.dayOfMonth.toString(),
-                    color = if (isPast || isCurrent) Color.White else Color.White.copy(alpha = 0.2f),
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Black,
-                    lineHeight = 26.sp
-                )
-                Text(
-                    text = dateObj.format(DateTimeFormatter.ofPattern("MMM")).uppercase(),
-                    color = if (isPast || isCurrent) Color(0xFF00FFCC) else Color.White.copy(alpha = 0.2f),
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Black,
-                    lineHeight = 13.sp
-                )
+                val dateObj = try { LocalDate.parse(race.date) } catch(e: Exception) { null }
+                if (dateObj != null) {
+                    Text(
+                        text = dateObj.dayOfMonth.toString(),
+                        color = if (isPast || isCurrent) Color.White else Color.White.copy(alpha = 0.2f),
+                        fontSize = 24.sp,
+                        fontWeight = FontWeight.Black,
+                        lineHeight = 26.sp
+                    )
+                    Text(
+                        text = dateObj.format(DateTimeFormatter.ofPattern("MMM")).uppercase(),
+                        color = if (isPast || isCurrent) Color(0xFF00FFCC) else Color.White.copy(alpha = 0.2f),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Black,
+                        lineHeight = 13.sp
+                    )
+                } else {
+                    Text(
+                        text = "--",
+                        color = Color.White.copy(alpha = 0.2f),
+                        fontSize = 24.sp,
+                        fontWeight = FontWeight.Black,
+                        lineHeight = 26.sp
+                    )
+                }
             }
         }
     }

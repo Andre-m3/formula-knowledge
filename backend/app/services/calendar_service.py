@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from .external_api_service import ExternalApiService
+from ..core.config import settings
 
 class CalendarUnavailableError(RuntimeError):
     """Raised when the authoritative external calendar cannot be loaded."""
@@ -10,7 +11,7 @@ class CalendarService:
         # Il calendario deve provenire dalla fonte esterna autorevole.
         # Non manteniamo più un calendario hardcoded: potrebbe diventare
         # errato dopo una modifica ufficiale a date, round o cancellazioni.
-        api_races = ExternalApiService.get_calendar(year=2026)
+        api_races = ExternalApiService.get_calendar(year=settings.F1_SEASON)
 
         if not api_races:
             raise CalendarUnavailableError(

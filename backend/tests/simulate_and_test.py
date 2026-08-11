@@ -15,8 +15,8 @@ sys.path.insert(0, os.path.abspath(os.path.join(BASE_DIR, '..')))
 
 from app.database import Base
 from app.models import DriverSeasonStats, ConstructorSeasonStats, RoundProcessingLog, Race
-from app.seed import seed_database
-from app.update_post_race import update_round
+from scripts.seed import seed_database
+from scripts.update_post_race import update_round
 
 # Usiamo un file locale semplice per evitare i bug dei path assoluti di Windows con SQLite
 TEST_DB_FILE = "test_sandbox.db"
@@ -72,12 +72,12 @@ class TestPostRaceUpdate(unittest.TestCase):
         cls.TestSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=cls.engine)
 
         # IL TRUCCO: Patchiamo SessionLocal ESATTAMENTE nei file che lo importano!
-        with patch('app.seed.SessionLocal', cls.TestSessionLocal), \
-             patch('app.seed.engine', cls.engine), \
-             patch('app.seed.CalendarService', return_value=FakeCalendarService()), \
-             patch('app.seed.ExternalApiService.get_schedule', return_value={}), \
-             patch('app.update_post_race.SessionLocal', cls.TestSessionLocal), \
-             patch('app.update_post_race.fetch_api', side_effect=mock_fetch_api):
+        with patch('scripts.seed.SessionLocal', cls.TestSessionLocal), \
+             patch('scripts.seed.engine', cls.engine), \
+             patch('scripts.seed.CalendarService', return_value=FakeCalendarService()), \
+             patch('scripts.seed.ExternalApiService.get_schedule', return_value={}), \
+             patch('scripts.update_post_race.SessionLocal', cls.TestSessionLocal), \
+             patch('scripts.update_post_race.fetch_api', side_effect=mock_fetch_api):
              
             print("\n--- 1. Creazione e Seeding del Database di Test ---")
             seed_database()
