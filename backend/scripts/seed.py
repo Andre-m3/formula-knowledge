@@ -213,7 +213,7 @@ HISTORICAL_DATA = {
         "num_races_held": 35,
     },
 
-    "Autodromo Nazionale Monza": {
+    "Autodromo Nazionale di Monza": {
         "laps": 53,
         "circuit_length": "5.793 km",
         "corners": 11,
@@ -317,7 +317,7 @@ HISTORICAL_DATA = {
         "num_races_held": 42,
     },
 
-    "Las Vegas Strip Circuit": {
+    "Las Vegas Strip Street Circuit": {
         "laps": 50,
         "circuit_length": "6.201 km",
         "corners": 17,
@@ -330,7 +330,7 @@ HISTORICAL_DATA = {
         "num_races_held": 3,
     },
 
-    "Lusail International Circuit": {
+    "Losail International Circuit": {
         "laps": 57,
         "circuit_length": "5.419 km",
         "corners": 16,
