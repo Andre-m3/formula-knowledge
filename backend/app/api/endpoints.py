@@ -1,0 +1,741 @@
+from datetime import date, datetime, timedelta, timezone
+import random
+from typing import List, Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Security
+from fastapi.security import OAuth2PasswordBearer
+from fastapi.security.api_key import APIKeyHeader
+from pydantic import BaseModel
+from sqlalchemy import func
+from sqlalchemy.orm import Session
+
+from firebase_admin import auth as firebase_auth
+
+from .. import database, models
+from ..core.config import settings
+from ..services.calendar_service import CalendarService, CalendarUnavailableError
+from ..services.external_api_service import ExternalApiService
+from ..services.fia_scraper import FiaScraperService
+from ..services.weather_service import WeatherService
+
+
+router = APIRouter()
+
+
+class ConstructorStatsResponseSchema(BaseModel):
+    constructor_id: str
+    total_races: int
+    wins: int
+    podiums: int
+    driver_championships: int
+    constructor_championships: int
+    first_gp_year: str
+    first_win: str
+    pole_positions: int
+    fastest_laps: int
+    total_points: float
+    seasons_entered: int
+    best_race_result: str
+    best_championship_result: str
+    power_unit: str
+    team_principal: str
+    base_location: str
+    last_updated: datetime
+
+
+class DriverSeasonStatsResponseSchema(BaseModel):
+    driver_id: str
+    year: int
+    total_races: int
+    wins: int
+    second_places: int
+    podiums: int
+    laps_led: int
+    fastest_laps: int
+    beat_teammate_race: int
+    beat_teammate_quali: int
+    pole_positions: int
+    front_rows: int
+    retirements: int
+    q3_appearances: int
+    q2_appearances: int
+    q1_appearances: int
+    dsqs: int
+    best_race_result: str
+    sprint_starts: int
+    sprint_wins: int
+    sprint_top_3: int
+    sprint_points_finishes: int
+    sprint_points: int
+    beat_teammate_sprint: int
+    sprint_quali_poles: int
+    last_updated: datetime
+
+
+class ConstructorSeasonStatsResponseSchema(BaseModel):
+    constructor_id: str
+    year: int
+    total_races: int
+    wins: int
+    podiums: int
+    fastest_laps: int
+    pole_positions: int
+    front_rows: int
+    one_two_finishes: int
+    double_dnfs: int
+    retirements: int
+    dsqs: int
+    races_in_points: int
+    double_q3: int
+    double_q2: int
+    double_q1: int
+    sprint_wins: int
+    sprint_podiums: int
+    sprint_points: int
+    last_updated: datetime
+
+
+# --- AUTH SCHEMAS ---
+class UserResponseSchema(BaseModel):
+    id: str
+    email: str
+    full_name: Optional[str] = None
+    f1_tag: Optional[str] = None
+    profile_image_url: Optional[str] = None
+    favorite_constructor_id: Optional[str] = None
+    favorite_driver1_id: Optional[str] = None
+    favorite_driver2_id: Optional[str] = None
+    preferences_set: bool
+    auth_provider: str
+
+
+class UpdatePreferencesSchema(BaseModel):
+    favorite_team_id: Optional[str] = None
+    favorite_driver1_id: Optional[str] = None
+    favorite_driver2_id: Optional[str] = None
+    preferences_set: bool
+
+
+# --- SECURITY ---
+api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+
+async def get_api_key(api_key_header: str = Security(api_key_header)):
+    if api_key_header != settings.API_SECRET_KEY:
+        raise HTTPException(status_code=403, detail="Non autorizzato: API Key mancante o non valida")
+    return api_key_header
+
+
+# OAuth2 scheme per estrarre automaticamente il token JWT dall'header "Authorization"
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+
+
+def generate_unique_f1_tag(db: Session) -> str:
+    adjectives = ["Fast", "Flying", "Smooth", "Braking", "Apex", "Slipstream", "DRS", "ERS", "KERS", "Turbo", "Oversteer", "Understeer", "Chicane", "Podium", "Pitstop", "Quali", "Grid", "Lap", "Downforce", "G-Force", "Amazing", "Legendary", "Slick", "Blazing", "Rapid", "Furious", "Rocket", "Thunder"]
+    nouns = ["Racer", "Driver", "Pilot", "Champion", "Rookie", "Legend", "Tifoso", "Max", "Schumacher", "Senna", "Prost", "Hamilton", "Vettel", "Rosberg", "Alonso", "Lauda", "Winner", "Predestinato", "Record", "Formula", "Monza", "Silverstone", "Lotus", "Ferrari", "McLaren"]
+
+    while True:
+        adj = random.choice(adjectives)
+        noun = random.choice(nouns)
+        num = random.randint(1, 99)
+        tag = f"{adj}{noun}{num}"
+
+        # Valida che il tag non sia troppo corto
+        if len(tag) >= 9:
+            if not db.query(models.User).filter(models.User.f1_tag == tag).first():
+                return tag
+
+
+async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(database.get_db)):
+    try:
+        decoded_token = firebase_auth.verify_id_token(token)
+        firebase_uid = decoded_token.get("uid")
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=f"Token Firebase non valido: {str(e)}")
+
+    user = db.query(models.User).filter(models.User.id == firebase_uid).first()
+    if not user:
+        new_tag = generate_unique_f1_tag(db)
+        user = models.User(id=firebase_uid, f1_tag=new_tag, display_name=decoded_token.get("name"))
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+
+    return user
+
+
+# --- SCHEMI ---
+class DailyForecastSchema(BaseModel):
+    day: str
+    status: str
+    temp_max: str
+    temp_min: str
+    wind: str
+    rain_probability: str
+
+
+class WeatherForecastSchema(BaseModel):
+    status: str
+    temp: str
+    humidity: str
+    feels_like: str
+    wind: str
+    uv: str
+    rain_probability: str
+    daily: List[DailyForecastSchema]
+
+
+class SessionTimesSchema(BaseModel):
+    fp1: Optional[str] = None
+    fp2: Optional[str] = None
+    fp3: Optional[str] = None
+    sprint_shootout: Optional[str] = None
+    sprint_race: Optional[str] = None
+    quali: Optional[str] = None
+    race: Optional[str] = None
+
+
+class RaceWeekResponse(BaseModel):
+    gp_name: str
+    country: str
+    city: str
+    circuit_name: Optional[str] = None
+    round_number: int
+    is_sprint: bool
+    status: str
+    dates: List[str]
+    weather_forecast: Optional[WeatherForecastSchema] = None
+    sessions: SessionTimesSchema
+    circuit_length: Optional[str] = None
+    laps: Optional[int] = None
+    corners: Optional[int] = None
+
+
+class CalendarEntryResponse(BaseModel):
+    name: str
+    country: str
+    city: str
+    circuit_name: Optional[str] = None
+    date: date
+    round: int
+    status: str
+    is_clickable: bool
+    cancelled: Optional[bool] = False
+
+
+class DriverStandingResponse(BaseModel):
+    position: int
+    driver_name: str
+    constructor_name: str
+    points: int
+    wins: int
+
+
+class ConstructorStandingResponse(BaseModel):
+    position: int
+    constructor_name: str
+    chassis_name: Optional[str] = None
+    points: int
+    wins: int
+
+
+class TeamUpdatesResponse(BaseModel):
+    team_name: str
+    team_color_hex: str
+    updates: List[str]
+
+
+class TeamUpdatesWrapperSchema(BaseModel):
+    status: str
+    gp: str
+    data: List[TeamUpdatesResponse] = []
+
+
+class RaceResultResponseSchema(BaseModel):
+    position: int
+    driver: str
+    team: str
+    points: int
+    time: str
+    q1: Optional[str] = None
+    q2: Optional[str] = None
+    q3: Optional[str] = None
+
+
+class CircuitDetailResponse(BaseModel):
+    round: int
+    gp_name: str
+    circuit_name: str
+    location: str
+    country: str
+    length: str
+    corners: int
+    laps: int
+    record: str
+    is_sprint: bool
+    status: str
+    dates: List[str]
+    previous_winner: str
+    most_driver_wins: str
+    most_constructor_wins: str
+    most_driver_podiums: str
+    most_poles: str
+    num_races_held: int
+    sessions: SessionTimesSchema
+
+
+class NewsArticleResponseSchema(BaseModel):
+    id: int
+    title: str
+    source: str
+    url: str
+    image_url: Optional[str] = None
+    published_at: datetime
+
+
+class DriverStatsResponseSchema(BaseModel):
+    driver_id: str
+    total_races: int
+    wins: int
+    podiums: int
+    pole_positions: int
+    wins_from_pole: int
+    world_championships: int
+
+    best_race_result: str
+    best_championship_result: str
+    best_grid_position: str
+    fastest_laps: int
+    dns_count: int
+    dnf_count: int
+    dsq_count: int
+
+    sprint_starts: int
+    sprint_wins: int
+    sprint_top_3: int
+    best_sprint_result: str
+    best_sprint_grid_position: str
+
+    place_of_birth: str
+    date_of_birth: str
+    first_gp: str
+    first_win: str
+    hat_tricks: int
+    grand_slams: int
+
+    last_updated: datetime
+
+
+# --- ENDPOINTS ---
+
+@router.get("/api/v1/raceweek/current", response_model=RaceWeekResponse, dependencies=[Depends(get_api_key)])
+async def get_current_raceweek(db: Session = Depends(database.get_db)):
+    try:
+        calendar = CalendarService()
+    except CalendarUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    weather = WeatherService()
+    race_info = calendar.get_current_or_next_race()
+    db_race = db.query(models.Race).filter(models.Race.round_number == race_info["round"]).first()
+    is_sprint = db_race.is_sprint if db_race else False
+
+    # FIX Coordinate: Jolpica a volte ritorna 0.0 per i circuiti cittadini storici
+    lat = race_info.get("lat", 0.0)
+    lon = race_info.get("lon", 0.0)
+    if (lat == 0.0 or lon == 0.0) and "monaco" in race_info.get("name", "").lower():
+        lat, lon = 43.7347, 7.4206
+
+    forecast = weather.get_forecast(lat, lon)
+    race_date = race_info["date"]
+    dates_list = [
+        (race_date - timedelta(days=2)).strftime('%d %b'),
+        (race_date - timedelta(days=1)).strftime('%d %b'),
+        race_date.strftime('%d %b')
+    ]
+
+    sessions = {
+        "fp1": db_race.fp1_time, "fp2": db_race.fp2_time,
+        "fp3": db_race.fp3_time, "sprint_shootout": db_race.sprint_shootout_time,
+        "sprint_race": db_race.sprint_race_time, "quali": db_race.quali_time,
+        "race": db_race.race_time
+    } if db_race else {}
+
+    # Calcoliamo se la gara è "questa settimana" (entro 6 giorni da oggi) o se è lontana nel futuro
+    now_utc = datetime.now(timezone.utc).date()
+    if race_date < now_utc:
+        status = "past"
+    elif race_date <= now_utc + timedelta(days=6):
+        status = "current"
+    else:
+        status = "future"
+
+    return {
+        "gp_name": race_info["name"],
+        "country": race_info["country"],
+        "city": race_info["city"],
+        "circuit_name": race_info.get("circuit_name"),
+        "round_number": race_info["round"],
+        "is_sprint": is_sprint,
+        "status": status,
+        "dates": dates_list,
+        "weather_forecast": forecast,
+        "sessions": sessions,
+        "circuit_length": db_race.circuit_length if db_race else "N/A",
+        "laps": db_race.laps if db_race else 0,
+        "corners": db_race.corners if db_race else 0
+    }
+
+
+@router.get("/api/v1/circuit/{round_number}", response_model=CircuitDetailResponse, dependencies=[Depends(get_api_key)])
+def get_circuit_details(round_number: int, db: Session = Depends(database.get_db)):
+    race = db.query(models.Race).filter(models.Race.round_number == round_number).first()
+    if not race:
+        raise HTTPException(status_code=404, detail="Circuit not found")
+
+    race_date = race.date
+    dates_list = [
+        (race_date - timedelta(days=2)).strftime('%d %b'),
+        (race_date - timedelta(days=1)).strftime('%d %b'),
+        race_date.strftime('%d %b')
+    ]
+
+    now_utc = datetime.now(timezone.utc).date()
+    if race.date < now_utc:
+        status = "past"
+    elif race.date == now_utc:
+        status = "current"
+    else:
+        status = "future"
+
+    display_gp_name = race.name
+    if "Emilia Romagna" in race.name:
+        display_gp_name = "Imola Grand Prix"
+
+    return {
+        "round": race.round_number,
+        "gp_name": display_gp_name,
+        "country": race.country,
+        "circuit_name": race.circuit_name or race.name,
+        "location": f"{race.city.upper()} ({race.country})",
+        "length": race.circuit_length or "N/A",
+        "corners": race.corners or 0,
+        "laps": race.laps,
+        "record": race.lap_record or "N/A",
+        "is_sprint": race.is_sprint,
+        "dates": dates_list,
+        "status": status,
+        "previous_winner": race.previous_winner or "N/A",
+        "most_driver_wins": race.most_driver_wins or "N/A",
+        "most_constructor_wins": race.most_constructor_wins or "N/A",
+        "most_driver_podiums": race.most_driver_podiums or "N/A",
+        "most_poles": race.most_poles or "N/A",
+        "num_races_held": race.num_races_held or 0,
+        "sessions": {
+            "fp1": race.fp1_time,
+            "fp2": race.fp2_time,
+            "fp3": race.fp3_time,
+            "sprint_shootout": race.sprint_shootout_time,
+            "sprint_race": race.sprint_race_time,
+            "quali": race.quali_time,
+            "race": race.race_time
+        }
+    }
+
+
+@router.get("/api/v1/results/{round_number}/updates", response_model=List[TeamUpdatesResponse], dependencies=[Depends(get_api_key)])
+def get_past_gp_updates(round_number: int, db: Session = Depends(database.get_db)):
+    updates = db.query(models.TechnicalUpdate).filter(models.TechnicalUpdate.race_id == round_number).all()
+    if not updates:
+        return []
+    teams_dict = {}
+    for up in updates:
+        team_name = up.team.name
+        if team_name not in teams_dict:
+            teams_dict[team_name] = {"color": up.team.color_hex, "updates": []}
+        teams_dict[team_name]["updates"].append(up.description)
+    return [TeamUpdatesResponse(team_name=k, team_color_hex=v["color"], updates=v["updates"]) for k, v in teams_dict.items()]
+
+
+@router.get("/api/v1/results/{round_number}/{session_type}", response_model=List[RaceResultResponseSchema], dependencies=[Depends(get_api_key)])
+def get_session_results(round_number: int, session_type: str, db: Session = Depends(database.get_db)):
+    # 1. Cerchiamo i risultati nel DB locale
+    db_results = db.query(models.RaceResult).join(models.Race).filter(models.Race.round_number == round_number, models.RaceResult.session_type == session_type).order_by(models.RaceResult.position).all()
+    if db_results:
+        return [
+            {
+                "position": r.position,
+                "driver": f"{r.driver.first_name} {r.driver.last_name}",
+                "team": r.driver.team.name,
+                "points": int(r.points),
+                "time": r.time_str or "",
+                "q1": r.q1,
+                "q2": r.q2,
+                "q3": r.q3
+            } for r in db_results
+        ]
+
+    # 2. Se non ci sono nel DB (sessione mai caricata prima), chiamiamo Jolpica
+    external_data = ExternalApiService.get_session_results(round_number, session_type, year=2026)
+
+    # 3. Salviamo nel DB per fare da cache persistente
+    race = db.query(models.Race).filter(models.Race.round_number == round_number).first()
+    if race and external_data:
+        db_drivers = db.query(models.Driver).all()
+        for data in external_data:
+            # Trova il pilota tramite cognome, gestendo anche suffissi come "Jr." e il typo "Limblad/Lindblad"
+            db_driver = None
+            api_driver_lower = data["driver"].lower()
+            for d in db_drivers:
+                db_last_lower = d.last_name.lower()
+                if (db_last_lower in api_driver_lower or
+                    db_last_lower.replace(" jr.", "") in api_driver_lower):
+                    db_driver = d
+                    break
+
+            if db_driver:
+                new_result = models.RaceResult(
+                    race_id=race.id,
+                    driver_id=db_driver.id,
+                    position=data["position"],
+                    points=data["points"],
+                    time_str=data["time"],
+                    q1=data.get("q1"), q2=data.get("q2"), q3=data.get("q3"),
+                    session_type=session_type
+                )
+                db.add(new_result)
+        db.commit()
+
+    return [RaceResultResponseSchema(**data) for data in external_data]
+
+
+@router.get("/api/v1/standings/drivers", response_model=List[DriverStandingResponse], dependencies=[Depends(get_api_key)])
+def get_driver_standings(db: Session = Depends(database.get_db)):
+    cached = db.query(models.DriverStandingCache).all()
+    # Controlla se la cache non è vuota e se i dati sono di oggi
+    if cached and all(c.last_updated == date.today() for c in cached):
+        return [DriverStandingResponse(position=c.position, driver_name=c.driver_name, constructor_name=c.constructor_name, points=c.points, wins=c.wins) for c in cached]
+
+    # Se la cache è vecchia o vuota, la puliamo e procediamo a ricaricare i dati
+    db.query(models.DriverStandingCache).delete()
+    db.commit()
+
+    external_data = ExternalApiService.get_driver_standings(year=2026)
+    for item in external_data:
+        new_cache = models.DriverStandingCache(position=item["position"], driver_name=item["driver_name"], constructor_name=item["constructor_name"], points=item["points"], wins=item["wins"], last_updated=date.today())
+        db.add(new_cache)
+    db.commit()
+    return [DriverStandingResponse(**data) for data in external_data]
+
+
+@router.get("/api/v1/standings/constructors", response_model=List[ConstructorStandingResponse], dependencies=[Depends(get_api_key)])
+def get_constructor_standings(db: Session = Depends(database.get_db)):
+    cached = db.query(models.ConstructorStandingCache).all()
+    # Controlla se la cache non è vuota e se i dati sono di oggi
+    if cached and all(c.last_updated == date.today() for c in cached):
+        return [ConstructorStandingResponse(position=c.position, constructor_name=c.constructor_name, chassis_name=c.chassis_name, points=c.points, wins=c.wins) for c in cached]
+
+    # Se la cache è vecchia o vuota, la puliamo e procediamo a ricaricare i dati
+    db.query(models.ConstructorStandingCache).delete()
+    db.commit()
+
+    external_data = ExternalApiService.get_constructor_standings(year=2026)
+    enriched_results = []
+    for item in external_data:
+        api_name = item["constructor_name"].lower()
+
+        search_name = api_name
+        if api_name == "rb" or "rb " in api_name or "racing bulls" in api_name or "alphatauri" in api_name:
+            search_name = "racing bulls"
+        elif "haas" in api_name:
+            search_name = "haas"
+        elif "alpine" in api_name:
+            search_name = "alpine"
+        elif "aston" in api_name:
+            search_name = "aston"
+
+        db_team = db.query(models.Team).filter(func.lower(models.Team.name).contains(search_name)).first()
+        if not db_team:
+            parts = search_name.split()
+            if parts:
+                db_team = db.query(models.Team).filter(func.lower(models.Team.name).contains(parts[0])).first()
+        chassis = db_team.chassis_name if db_team else "N/A"
+        new_cache = models.ConstructorStandingCache(position=item["position"], constructor_name=item["constructor_name"], chassis_name=chassis, points=item["points"], wins=item["wins"], last_updated=date.today())
+        db.add(new_cache)
+        enriched_results.append({"position": item["position"], "constructor_name": item["constructor_name"], "chassis_name": chassis, "points": item["points"], "wins": item["wins"]})
+    db.commit()
+    return enriched_results
+
+
+@router.get("/api/v1/calendar", response_model=List[CalendarEntryResponse], dependencies=[Depends(get_api_key)])
+def get_calendar():
+    try:
+        calendar = CalendarService()
+    except CalendarUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    return calendar.get_full_calendar()
+
+
+@router.get("/api/v1/raceweek/updates", response_model=TeamUpdatesWrapperSchema, dependencies=[Depends(get_api_key)])
+def get_latest_car_updates(db: Session = Depends(database.get_db)):
+    try:
+        calendar = CalendarService()
+    except CalendarUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    current_race = calendar.get_current_or_next_race()
+    round_num = current_race["round"]
+    existing_updates = db.query(models.TechnicalUpdate).filter(models.TechnicalUpdate.race_id == round_num).all()
+    if existing_updates:
+        teams_dict = {}
+        for up in existing_updates:
+            team_name = up.team.name
+            if team_name not in teams_dict:
+                teams_dict[team_name] = {"color": up.team.color_hex, "updates": []}
+            teams_dict[team_name]["updates"].append(up.description)
+        data = [TeamUpdatesResponse(team_name=k, team_color_hex=v["color"], updates=v["updates"]) for k, v in teams_dict.items()]
+        return TeamUpdatesWrapperSchema(status="ready", gp=current_race["name"], data=data)
+    scraper = FiaScraperService()
+    result = scraper.process_latest_car_presentation()
+    if result["status"] == "not_ready":
+        return TeamUpdatesWrapperSchema(status="not_ready", gp=result["gp"], data=[])
+    final_data = []
+    for item in result["data"]:
+        db_team = db.query(models.Team).filter(models.Team.name == item["team_name"]).first()
+        if db_team:
+            for update_desc in item["updates"]:
+                new_update = models.TechnicalUpdate(race_id=round_num, team_id=db_team.id, component="General", description=update_desc)
+                db.add(new_update)
+            final_data.append(TeamUpdatesResponse(team_name=item["team_name"], team_color_hex=db_team.color_hex, updates=item["updates"]))
+    db.commit()
+    return TeamUpdatesWrapperSchema(status="ready", gp=result["gp"], data=final_data)
+
+
+@router.get("/api/v1/drivers/{driver_id}/stats", response_model=DriverStatsResponseSchema, dependencies=[Depends(get_api_key)])
+def get_driver_stats(driver_id: str, db: Session = Depends(database.get_db)):
+    # Nessuna chiamata esterna! Risposta fulminea grazie all'Internal Aggregator.
+    stats = db.query(models.DriverCareerStats).filter(models.DriverCareerStats.driver_id == driver_id).first()
+    if not stats:
+        raise HTTPException(status_code=404, detail="Driver stats not found")
+    return stats
+
+
+@router.get("/api/v1/constructors/{constructor_id}/stats", response_model=ConstructorStatsResponseSchema, dependencies=[Depends(get_api_key)])
+def get_constructor_stats(constructor_id: str, db: Session = Depends(database.get_db)):
+    stats = db.query(models.ConstructorCareerStats).filter(models.ConstructorCareerStats.constructor_id == constructor_id).first()
+    if not stats:
+        raise HTTPException(status_code=404, detail="Constructor stats not found")
+    return stats
+
+
+@router.get("/api/v1/drivers/{driver_id}/season_stats", response_model=DriverSeasonStatsResponseSchema, dependencies=[Depends(get_api_key)])
+def get_driver_season_stats(driver_id: str, db: Session = Depends(database.get_db)):
+    stats = db.query(models.DriverSeasonStats).filter(models.DriverSeasonStats.driver_id == driver_id, models.DriverSeasonStats.year == 2026).first()
+    if not stats:
+        raise HTTPException(status_code=404, detail="Driver season stats not found")
+    return stats
+
+
+@router.get("/api/v1/constructors/{constructor_id}/season_stats", response_model=ConstructorSeasonStatsResponseSchema, dependencies=[Depends(get_api_key)])
+def get_constructor_season_stats(constructor_id: str, db: Session = Depends(database.get_db)):
+    stats = db.query(models.ConstructorSeasonStats).filter(models.ConstructorSeasonStats.constructor_id == constructor_id, models.ConstructorSeasonStats.year == 2026).first()
+    if not stats:
+        raise HTTPException(status_code=404, detail="Constructor season stats not found")
+    return stats
+
+
+@router.get("/api/v1/news", response_model=List[NewsArticleResponseSchema], dependencies=[Depends(get_api_key)])
+def get_latest_news(db: Session = Depends(database.get_db)):
+    articles = db.query(models.NewsArticle).order_by(models.NewsArticle.published_at.desc()).limit(20).all()
+    return [
+        {
+            "id": a.id,
+            "title": a.title,
+            "source": a.source,
+            "url": a.url,
+            "image_url": a.image_url,
+            "published_at": a.published_at
+        } for a in articles
+    ]
+
+
+# --- AUTH ENDPOINTS ---
+
+def map_team_string_to_id(db: Session, team_str: str) -> Optional[int]:
+    if not team_str: return None
+    search = team_str.lower().replace("_", " ")
+    if search == "rb": search = "racing bulls"
+    if search == "audi": search = "audi"
+    t = db.query(models.Team).filter(func.lower(models.Team.name).contains(search)).first()
+    return t.id if t else None
+
+
+def map_driver_string_to_id(db: Session, driver_str: str) -> Optional[int]:
+    if not driver_str: return None
+    search = driver_str.split("_")[-1].lower()
+    d = db.query(models.Driver).filter(func.lower(models.Driver.last_name).contains(search)).first()
+    return d.id if d else None
+
+
+def map_team_id_to_string(db: Session, team_id: int) -> Optional[str]:
+    if not team_id: return None
+    t = db.query(models.Team).filter(models.Team.id == team_id).first()
+    if not t: return None
+    n = t.name.lower()
+    if "ferrari" in n: return "ferrari"
+    if "mclaren" in n: return "mclaren"
+    if "mercedes" in n: return "mercedes"
+    if "red bull" in n: return "red_bull"
+    if "aston" in n: return "aston_martin"
+    if "alpine" in n: return "alpine"
+    if "williams" in n: return "williams"
+    if "bulls" in n: return "rb"
+    if "audi" in n: return "audi"
+    if "haas" in n: return "haas"
+    if "cadillac" in n: return "cadillac"
+    return "unknown"
+
+
+def map_driver_id_to_string(db: Session, driver_id: int) -> Optional[str]:
+    if not driver_id: return None
+    d = db.query(models.Driver).filter(models.Driver.id == driver_id).first()
+    if not d: return None
+    n = d.last_name.lower().replace("ü", "u").replace("é", "e").replace(" jr.", "")
+    if "sainz" in n: return "sainz"
+    if "verstappen" in n: return "max_verstappen"
+    if "lindblad" in n: return "arvid_lindblad"
+    return n
+
+
+def build_user_profile(user: models.User, token: str, db: Session):
+    try:
+        decoded_token = firebase_auth.verify_id_token(token)
+    except:
+        decoded_token = {}
+    return {
+        "id": user.id,
+        "email": decoded_token.get("email", "N/A"),
+        "full_name": user.display_name or decoded_token.get("name", "Tifoso"),
+        "f1_tag": user.f1_tag,
+        "profile_image_url": decoded_token.get("picture"),
+        "favorite_constructor_id": map_team_id_to_string(db, user.favorite_team_id),
+        "favorite_driver1_id": map_driver_id_to_string(db, user.favorite_driver1_id),
+        "favorite_driver2_id": map_driver_id_to_string(db, user.favorite_driver2_id),
+        "preferences_set": user.preferences_set,
+        "auth_provider": decoded_token.get("firebase", {}).get("sign_in_provider", "unknown")
+    }
+
+
+@router.get("/api/v1/auth/me", response_model=UserResponseSchema, dependencies=[Depends(get_api_key)])
+def get_my_profile(current_user: models.User = Depends(get_current_user), token: str = Depends(oauth2_scheme), db: Session = Depends(database.get_db)):
+    return build_user_profile(current_user, token, db)
+
+
+@router.put("/api/v1/auth/preferences", response_model=UserResponseSchema, dependencies=[Depends(get_api_key)])
+def update_my_preferences(req: UpdatePreferencesSchema, current_user: models.User = Depends(get_current_user), token: str = Depends(oauth2_scheme), db: Session = Depends(database.get_db)):
+    current_user.favorite_team_id = map_team_string_to_id(db, req.favorite_team_id)
+    current_user.favorite_driver1_id = map_driver_string_to_id(db, req.favorite_driver1_id)
+    current_user.favorite_driver2_id = map_driver_string_to_id(db, req.favorite_driver2_id)
+    current_user.preferences_set = req.preferences_set
+
+    db.commit()
+    db.refresh(current_user)
+    return build_user_profile(current_user, token, db)

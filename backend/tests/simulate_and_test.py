@@ -2,6 +2,7 @@ import os
 import json
 import unittest
 from unittest.mock import patch
+from datetime import date
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -13,12 +14,31 @@ import sys
 sys.path.insert(0, os.path.abspath(os.path.join(BASE_DIR, '..')))
 
 from app.database import Base
-from app.models import DriverSeasonStats, ConstructorSeasonStats, RoundProcessingLog
+from app.models import DriverSeasonStats, ConstructorSeasonStats, RoundProcessingLog, Race
 from app.seed import seed_database
 from app.update_post_race import update_round
 
 # Usiamo un file locale semplice per evitare i bug dei path assoluti di Windows con SQLite
 TEST_DB_FILE = "test_sandbox.db"
+
+
+class FakeCalendarService:
+    """Calendario minimo e deterministico usato solo dal test sandbox."""
+
+    def __init__(self):
+        self.races = [
+            {
+                "round": 1,
+                "name": "Australian Grand Prix",
+                "country": "Australia",
+                "city": "Melbourne",
+                "circuit_name": "Albert Park Circuit",
+                "lat": -37.8497,
+                "lon": 144.968,
+                "date": date(2026, 3, 8),
+                "cancelled": False,
+            }
+        ]
 
 
 def mock_fetch_api(url):
@@ -54,11 +74,23 @@ class TestPostRaceUpdate(unittest.TestCase):
         # IL TRUCCO: Patchiamo SessionLocal ESATTAMENTE nei file che lo importano!
         with patch('app.seed.SessionLocal', cls.TestSessionLocal), \
              patch('app.seed.engine', cls.engine), \
+             patch('app.seed.CalendarService', return_value=FakeCalendarService()), \
+             patch('app.seed.ExternalApiService.get_schedule', return_value={}), \
              patch('app.update_post_race.SessionLocal', cls.TestSessionLocal), \
              patch('app.update_post_race.fetch_api', side_effect=mock_fetch_api):
              
             print("\n--- 1. Creazione e Seeding del Database di Test ---")
             seed_database()
+
+            # Il seed deve davvero aver creato la gara di base: se fallisce,
+            # il test deve interrompersi invece di proseguire in modo ambiguo.
+            verification_db = cls.TestSessionLocal()
+            try:
+                seeded_race = verification_db.query(Race).filter_by(round_number=1).first()
+                if seeded_race is None:
+                    raise AssertionError("Il seeding sandbox non ha creato il round 1")
+            finally:
+                verification_db.close()
 
             print("\n--- 2. Esecuzione Script di Aggiornamento (Round 1) ---")
             update_round(1)

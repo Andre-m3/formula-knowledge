@@ -173,22 +173,23 @@ class FormulaRepository(private val database: FormulaDatabase) {
             }
             generalDao.updateCalendar(entities)
 
-            // Pre-fetch silente: scarichiamo in background solo ciò che manca nel DB
+            // Pre-fetch silente dei dati essenziali: gare passate e prossimo GP.
+            // I round futuri restano on-demand per evitare richieste inutili al primo avvio.
             coroutineScope {
-                entities.filter { !it.cancelled }.forEach { race ->
+                entities
+                    .filter { !it.cancelled && (it.status == "past" || it.status == "current") }
+                    .forEach { race ->
                     launch {
-                        // Pre-carica i dettagli del circuito per tutte le gare non cancellate (se mancano)
+                        // Pre-carica i dettagli del circuito se mancano
                         val existingCircuit = raceDao.getCircuitDetail(race.round).firstOrNull()
                         if (existingCircuit == null) {
                             refreshCircuitDetail(race.round)
                         }
-                        
-                        // Pre-carica i risultati solo per le gare passate (se mancano)
-                        if (race.status == "past") {
-                            val existingResults = raceDao.getRaceResults(race.round, "race").firstOrNull()
-                            if (existingResults.isNullOrEmpty()) {
-                                refreshRaceResults(race.round, "race")
-                            }
+
+                        // Pre-carica i risultati della gara se mancano
+                        val existingResults = raceDao.getRaceResults(race.round, "race").firstOrNull()
+                        if (existingResults.isNullOrEmpty()) {
+                            refreshRaceResults(race.round, "race")
                         }
                     }
                 }

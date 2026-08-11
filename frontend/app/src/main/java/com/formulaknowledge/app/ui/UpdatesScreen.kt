@@ -18,6 +18,8 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -349,7 +351,8 @@ fun UpdatesScreen() {
                 }
                 }
 
-            if (currentScreen in listOf(AppScreen.HOME, AppScreen.CALENDAR, AppScreen.PERSONAL, AppScreen.NEWS, AppScreen.RESULTS, AppScreen.STANDINGS, AppScreen.WEATHER_DETAIL, AppScreen.DRIVER_DETAIL, AppScreen.CONSTRUCTOR_DETAIL, AppScreen.RACE_SESSIONS, AppScreen.CIRCUIT_DETAIL)) {
+            val isPreferencesOnboardingActive = currentScreen == AppScreen.PERSONAL && authUiState.isLoggedIn && authUiState.userProfile != null && !authUiState.userProfile!!.preferences_set
+            if (currentScreen in listOf(AppScreen.HOME, AppScreen.CALENDAR, AppScreen.PERSONAL, AppScreen.NEWS, AppScreen.RESULTS, AppScreen.STANDINGS, AppScreen.WEATHER_DETAIL, AppScreen.DRIVER_DETAIL, AppScreen.CONSTRUCTOR_DETAIL, AppScreen.RACE_SESSIONS, AppScreen.CIRCUIT_DETAIL) && !isPreferencesOnboardingActive) {
                 Box(
                     modifier = Modifier
                         .offset(y = bottomBarOffset)
@@ -2498,17 +2501,55 @@ fun PersonalScreen(onNavigateToProfile: () -> Unit = {}) {
         // Controllo: Se è loggato e non ha mai settato/skippato le preferenze, mostriamo il setup a tutto schermo
         if (uiState.isLoggedIn && uiState.userProfile != null && !uiState.userProfile!!.preferences_set) {
             PreferencesOnboardingScreen(
+                isLoading = uiState.isLoading,
                 onSkip = { authViewModel.updatePreferences(null, null, null) },
                 onSave = { d1, d2, team -> authViewModel.updatePreferences(d1, d2, team) }
             )
             return
         }
 
-    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
-        Spacer(modifier = Modifier.height(46.dp))
-        Text(text = "PERSONAL", color = Color.White, fontSize = 54.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic, letterSpacing = (-3).sp)
-        Text(text = "DASHBOARD", color = Color(0xFF00FFCC), fontSize = 38.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic, letterSpacing = (-2).sp, modifier = Modifier.offset(y = (-10).dp))
-
+    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp).verticalScroll(rememberScrollState())) {
+        Spacer(modifier = Modifier.height(26.dp))
+        Box(modifier = Modifier.fillMaxWidth().height(160.dp), contentAlignment = Alignment.BottomStart) {
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .fillMaxWidth(0.8f)
+                    .align(Alignment.CenterEnd)
+                    .graphicsLayer {
+                        alpha = 0.99f
+                        translationX = 20.dp.toPx()
+                        translationY = -26.dp.toPx()
+                        scaleX = 1.5f
+                        scaleY = 1.5f
+                    }
+                    .drawWithContent {
+                        drawContent()
+                        drawRect(
+                            brush = Brush.horizontalGradient(
+                                colors = listOf(Color.Transparent, Color.Black),
+                                startX = 0f,
+                                endX = size.width * 0.7f
+                            ),
+                            blendMode = BlendMode.DstIn
+                        )
+                        drawRect(
+                            brush = Brush.verticalGradient(
+                                colors = listOf(Color.Black, Color.Transparent),
+                                startY = size.height * 0.35f,
+                                endY = size.height
+                            ),
+                            blendMode = BlendMode.DstIn
+                        )
+                    }
+            ) {
+                Icon(imageVector = Icons.Default.Settings, contentDescription = "Background Settings", tint = Color.White, modifier = Modifier.fillMaxSize().alpha(0.15f))
+            }
+            Column {
+                Text(text = "PERSONAL", color = Color.White, fontSize = 54.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic, letterSpacing = (-3).sp, lineHeight = 44.sp)
+                Text(text = "DASHBOARD", color = Color(0xFF00FFCC), fontSize = 38.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic, letterSpacing = (-2).sp, modifier = Modifier.offset(y = (-8).dp))
+            }
+        }
         Spacer(modifier = Modifier.height(24.dp))
 
         if (!uiState.isLoggedIn) {
@@ -2520,7 +2561,7 @@ fun PersonalScreen(onNavigateToProfile: () -> Unit = {}) {
                 border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.1f))
             ) {
                 Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(Icons.Default.Lock, contentDescription = "Locked", tint = Color(0xFF00FFCC), modifier = Modifier.size(48.dp))
+                        Icon(Icons.Default.Lock, contentDescription = "Locked", tint = Color(0xFF00FFCC), modifier = Modifier.size(42.dp))
                         Spacer(modifier = Modifier.height(12.dp))
                         Text("FUNZIONALITÀ BLOCCATE", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Black)
                         Spacer(modifier = Modifier.height(4.dp))
@@ -2530,7 +2571,7 @@ fun PersonalScreen(onNavigateToProfile: () -> Unit = {}) {
 
                     Button(
                         onClick = { authViewModel.signInWithGoogle(context) },
-                        modifier = Modifier.fillMaxWidth().height(54.dp),
+                        modifier = Modifier.fillMaxWidth().height(50.dp),
                         shape = RoundedCornerShape(14.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = Color.White)
                     ) {
@@ -2549,22 +2590,32 @@ fun PersonalScreen(onNavigateToProfile: () -> Unit = {}) {
             // --- LOGGED IN VIEW (UNLOCKED) ---
             Surface(
                 modifier = Modifier.fillMaxWidth().clickable { onNavigateToProfile() },
-                shape = RoundedCornerShape(24.dp),
+                shape = RoundedCornerShape(20.dp),
                 color = Color.White.copy(alpha = 0.03f),
                 border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.1f))
             ) {
-                Column(modifier = Modifier.padding(24.dp)) {
+                Column(modifier = Modifier.padding(16.dp)) { // Altezza card ridotta
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Surface(shape = CircleShape, color = Color(0xFF00FFCC).copy(alpha = 0.15f), modifier = Modifier.size(64.dp)) {
-                            Icon(Icons.Default.Person, contentDescription = null, tint = Color(0xFF00FFCC), modifier = Modifier.padding(14.dp))
+                        Surface(shape = CircleShape, color = Color(0xFF00FFCC).copy(alpha = 0.15f), modifier = Modifier.size(54.dp)) {
+                            if (!uiState.userProfile?.profile_image_url.isNullOrEmpty()) {
+                                AsyncImage(
+                                    model = uiState.userProfile?.profile_image_url,
+                                    contentDescription = "Profile Picture",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            } else {
+                                Icon(Icons.Default.Person, contentDescription = null, tint = Color(0xFF00FFCC), modifier = Modifier.padding(12.dp))
+                            }
                         }
                         Spacer(modifier = Modifier.width(16.dp))
                         Column {
                             Text("WELCOME BACK", color = Color.White.copy(alpha = 0.5f), fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
                             if (uiState.isLoading || uiState.userProfile == null) {
-                                Text("Loading...", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic)
+                                Text("LOADING...", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic)
                             } else {
-                                Text(uiState.userProfile?.email?.substringBefore("@") ?: "Driver", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic)
+                                val displayName = uiState.userProfile?.full_name?.split(" ")?.firstOrNull()?.uppercase() ?: uiState.userProfile?.email?.substringBefore("@")?.uppercase() ?: "DRIVER"
+                                Text(displayName, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                         }
                     }
@@ -2572,12 +2623,30 @@ fun PersonalScreen(onNavigateToProfile: () -> Unit = {}) {
             }
         }
 
+        Spacer(modifier = Modifier.height(32.dp))
+        Text("IMPOSTAZIONI APP", color = Color.White.copy(alpha = 0.5f), fontSize = 13.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
+        Spacer(modifier = Modifier.height(12.dp))
+
+        SettingsRow("Notifiche", Icons.Default.Notifications)
+        SettingsRow("Widgets", Icons.Default.Widgets)
+        SettingsRow("Tema App", Icons.Default.Palette, isLocked = !uiState.isLoggedIn)
+        SettingsRow("Accessibilità", Icons.Default.Accessibility)
+
+        Spacer(modifier = Modifier.height(24.dp))
+        Text("SUPPORTO & LEGALE", color = Color.White.copy(alpha = 0.5f), fontSize = 13.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
+        Spacer(modifier = Modifier.height(12.dp))
+
+        SettingsRow("Dacci un feedback", Icons.Default.Feedback)
+        SettingsRow("Contattaci", Icons.Default.Mail)
+        SettingsRow("Informativa sulla Privacy", Icons.Default.Policy)
+        SettingsRow("Elimina account", Icons.Default.DeleteForever, tintColor = Color(0xFFFF0033))
+
         if (uiState.isLoggedIn) {
-            Spacer(modifier = Modifier.height(40.dp))
+            Spacer(modifier = Modifier.height(32.dp))
             Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                     Button(
                             onClick = { authViewModel.logout() },
-                        modifier = Modifier.fillMaxWidth(0.6f).height(54.dp),
+                        modifier = Modifier.fillMaxWidth(0.6f).height(50.dp),
                         shape = RoundedCornerShape(14.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.1f))
                     ) {
@@ -2585,6 +2654,8 @@ fun PersonalScreen(onNavigateToProfile: () -> Unit = {}) {
                     }
             }
         }
+        
+        Spacer(modifier = Modifier.height(120.dp)) // Spazio per non coprire gli ultimi elementi con la Bottom Bar
     }
 }
 }
@@ -2613,10 +2684,19 @@ fun ProfileScreen(uiState: AuthUiState, onBack: () -> Unit) {
             Surface(
                 shape = CircleShape, 
                 color = teamColor.copy(alpha = 0.15f), 
-                modifier = Modifier.size(110.dp),
+                modifier = Modifier.size(100.dp),
                 border = BorderStroke(2.dp, teamColor.copy(alpha = 0.5f))
             ) {
-                Icon(Icons.Default.Person, contentDescription = null, tint = teamColor, modifier = Modifier.padding(24.dp))
+                if (!profile.profile_image_url.isNullOrEmpty()) {
+                    AsyncImage(
+                        model = profile.profile_image_url,
+                        contentDescription = "Profile Picture",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    Icon(Icons.Default.Person, contentDescription = null, tint = teamColor, modifier = Modifier.padding(24.dp))
+                }
             }
         }
         
@@ -2673,6 +2753,23 @@ fun LockedFeatureRow(title: String) {
             Icon(Icons.Default.Lock, contentDescription = null, tint = Color.White.copy(alpha = 0.2f), modifier = Modifier.size(20.dp))
             Spacer(modifier = Modifier.width(16.dp))
             Text(title, color = Color.White.copy(alpha = 0.3f), fontSize = 14.sp, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+fun SettingsRow(title: String, icon: androidx.compose.ui.graphics.vector.ImageVector, isLocked: Boolean = false, tintColor: Color = Color(0xFF00FFCC), onClick: () -> Unit = {}) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().height(64.dp).padding(vertical = 4.dp).clickable(enabled = !isLocked) { onClick() },
+        shape = RoundedCornerShape(12.dp),
+        color = Color.White.copy(alpha = 0.03f),
+        border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.05f))
+    ) {
+        Row(modifier = Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, contentDescription = null, tint = if (isLocked) Color.White.copy(alpha = 0.2f) else tintColor, modifier = Modifier.size(22.dp))
+            Spacer(modifier = Modifier.width(16.dp))
+            Text(title, color = if (isLocked) Color.White.copy(alpha = 0.3f) else Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            if (isLocked) { Icon(Icons.Default.Lock, contentDescription = "Locked", tint = Color.White.copy(alpha = 0.2f), modifier = Modifier.size(16.dp)) } else { Icon(Icons.Default.ChevronRight, contentDescription = null, tint = Color.White.copy(alpha = 0.2f), modifier = Modifier.size(20.dp)) }
         }
     }
 }

@@ -5,6 +5,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -36,6 +37,7 @@ fun CalendarScreen(
     val database = remember { FormulaDatabase.getDatabase(context) }
     val repository = remember { FormulaRepository(database) }
 
+    val listState = rememberLazyListState()
     val calendarEntities by repository.calendar.collectAsState(initial = emptyList())
     val calendarItems = calendarEntities.map {
         CalendarResponse(
@@ -46,6 +48,14 @@ fun CalendarScreen(
 
     LaunchedEffect(Unit) {
         repository.refreshCalendar()
+    }
+
+    // Auto-scroll intelligente al Next Round (mostrando le 3 gare precedenti)
+    LaunchedEffect(calendarItems) {
+        val nextRaceIndex = calendarItems.indexOfFirst { it.status == "current" || it.status == "future" }
+        if (nextRaceIndex != -1) {
+            listState.scrollToItem(maxOf(0, nextRaceIndex - 3))
+        }
     }
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
@@ -74,6 +84,7 @@ fun CalendarScreen(
 
         Box(modifier = Modifier.weight(1f)) {
             LazyColumn(
+                state = listState,
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 contentPadding = PaddingValues(bottom = 120.dp)
             ) {

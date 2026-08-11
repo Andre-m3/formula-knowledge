@@ -57,7 +57,7 @@ class AuthViewModel(
             val currentUser = FirebaseAuth.getInstance().currentUser
             if (currentUser != null) {
                 try {
-                    val tokenResult = currentUser.getIdToken(false).await()
+                    val tokenResult = currentUser.getIdToken(true).await()
                     val token = tokenResult.token ?: return@launch
                     tokenManager.saveToken(token) // Lo salviamo localmente per le API
                     _uiState.value = _uiState.value.copy(isLoggedIn = true, isLoading = true)
@@ -85,7 +85,7 @@ class AuthViewModel(
                 } else {
                     auth.signInWithEmailAndPassword(email, pass).await()
                 }
-                val token = authResult.user?.getIdToken(false)?.await()?.token ?: throw Exception("Token nullo")
+                val token = authResult.user?.getIdToken(true)?.await()?.token ?: throw Exception("Token nullo")
                 tokenManager.saveToken(token)
                 _uiState.value = _uiState.value.copy(isLoggedIn = true, isLoading = false)
                 fetchProfile(token)
@@ -116,7 +116,7 @@ class AuthViewModel(
                     val firebaseCredential = GoogleAuthProvider.getCredential(googleIdTokenCredential.idToken, null)
                     
                     val authResult = FirebaseAuth.getInstance().signInWithCredential(firebaseCredential).await()
-                    val firebaseToken = authResult.user?.getIdToken(false)?.await()?.token ?: throw Exception("Token Firebase nullo")
+                    val firebaseToken = authResult.user?.getIdToken(true)?.await()?.token ?: throw Exception("Token Firebase nullo")
                     
                     tokenManager.saveToken(firebaseToken)
                     _uiState.value = _uiState.value.copy(isLoggedIn = true, isLoading = false)
@@ -145,14 +145,16 @@ class AuthViewModel(
     fun updatePreferences(driver1: String?, driver2: String?, team: String?) {
         viewModelScope.launch {
             try {
+                _uiState.value = _uiState.value.copy(isLoading = true)
                 val tokenResult = FirebaseAuth.getInstance().currentUser?.getIdToken(false)?.await()
                 val token = tokenResult?.token ?: return@launch
                 
                 val request = UpdatePreferencesRequest(team, driver1, driver2, true)
                 val updatedProfile = apiService.updatePreferences("Bearer $token", request)
-                _uiState.value = _uiState.value.copy(userProfile = updatedProfile)
+                _uiState.value = _uiState.value.copy(userProfile = updatedProfile, isLoading = false)
             } catch (e: Exception) {
                 Log.e("AuthViewModel", "Errore aggiornamento preferenze", e)
+                _uiState.value = _uiState.value.copy(isLoading = false)
             }
         }
     }

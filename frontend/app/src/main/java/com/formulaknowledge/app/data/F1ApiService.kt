@@ -66,6 +66,7 @@ data class UserProfileResponse(
     val email: String,
     val full_name: String?,
     val f1_tag: String?,
+    val profile_image_url: String?,
     val favorite_constructor_id: String?,
     val favorite_driver1_id: String?,
     val favorite_driver2_id: String?,
