@@ -34,8 +34,8 @@ Questo documento raccoglie le decisioni architetturali e le attività consigliat
 - Il caricamento iniziale attende il refresh di race week e calendario prima di mostrare la Home, evitando il lampo di una race week Room obsoleta.
 - `refreshCalendar()` aggiorna il calendario completo e precarica dettagli circuito e risultati gara per round passati e round corrente; i round futuri restano on-demand.
 - Il backup Android esclude il database Room/cache, DataStore e SharedPreferences per evitare il ripristino di dati vecchi sopra una nuova installazione.
-- Firebase gestisce autenticazione email/password e Google Sign-In.
-- DataStore conserva token e stato di completamento dell’onboarding.
+- Identity gestita da Firebase; la UI corrente espone solo Google Sign-In, mentre email/password resta predisposto ma disabilitato dal flag `EMAIL_PASSWORD_AUTH_ENABLED`.
+- FirebaseAuth gestisce la sessione; DataStore conserva soltanto lo stato di completamento onboarding.
 - Gli ospiti possono consultare i dati generali; profilo, preferenze e future funzioni avanzate devono richiedere autenticazione.
 
 ## Decisioni consigliate
@@ -207,12 +207,40 @@ La migrazione non è urgente per correggere l’app attuale, ma è consigliata p
 - Aggiungere endpoint /health e logging strutturato prima del deploy pubblico — pendente.
 - Hardening logging Retrofit completato il 2026-09-03: BASIC solo in debug, NONE in release e redazione di Authorization/X-API-Key.
 
-### Fase 5 — Autenticazione e autorizzazioni
+### Fase 5 — Autenticazione e autorizzazioni — base completata; sicurezza avanzata pendente
 
-- Formalizzare quali endpoint sono guest e quali autenticati.
+- ~~Formalizzare quali endpoint sono guest e quali autenticati.~~ Completato il 2026-09-03: dati generali richiedono API key; profilo e preferenze richiedono API key piu token Firebase.
+- ~~Rimuovere il token Firebase duplicato dal DataStore.~~ Completato il 2026-09-03: FirebaseAuth gestisce la sessione e la chiave legacy viene eliminata durante avvio.
+- ~~Eliminare la doppia verifica Firebase nel profilo utente.~~ Completato il 2026-09-03: una sola dependency verifica il token e passa i claims gia verificati alle route auth.
 - Proteggere dal backend le feature avanzate.
 - Introdurre ruoli o capability per AI, live timing, notifiche e widget.
-- Spostare segreti e credenziali fuori dal repository e dall’APK.
+- Spostare segreti e credenziali fuori da repository e APK.
+- Mantenere temporaneamente `X-API-Key` per lo sviluppo locale; prima del deployment pubblico valutare la rimozione dalle route guest e la protezione con HTTPS, rate limiting, CORS e monitoraggio.
+
+### Capability future — pianificata, non implementata
+
+Questa sezione raccoglie le funzionalità avanzate che richiederanno autorizzazioni persistenti lato backend, senza introdurle nella fase corrente:
+
+- capability separate per AI custom, notifiche push, sessioni live e widget;
+- eventuali ruoli amministrativi o moderazione;
+- modello dati e migration Alembic dedicati, da definire prima di modificare la tabella `users`;
+- controllo backend obbligatorio: la UI potrà nascondere una funzione, ma non sarà mai l’unico controllo di accesso;
+- audit, revoca e test di autorizzazione per ogni capability.
+
+
+### Sicurezza API pubblica — obbligatoria prima del deployment
+
+La `X-API-Key` distribuita nell’APK non è un segreto forte: può essere estratta da un client. Per lo sviluppo locale resta un filtro operativo utile, ma non deve rappresentare la protezione definitiva del servizio pubblico.
+
+Prima della pubblicazione occorre valutare e testare in modo coordinato:
+
+- rimozione della `X-API-Key` dalle sole route guest di sola lettura, oppure sostituzione con un meccanismo di attestazione/app integrity se realmente necessario;
+- mantenimento del token Firebase sulle route personali e sulle future feature avanzate;
+- HTTPS obbligatorio, rate limiting, CORS restrittivo, logging senza segreti e monitoraggio degli errori;
+- aggiornamento simultaneo di backend, interceptor Retrofit, test HTTP e documentazione;
+- piano di rollback e verifica su ambiente staging prima della modifica del server pubblico.
+
+Questa attività è rinviata: non modifica il contratto locale corrente e non è necessaria per le feature offline-first attuali.
 
 ### Fase 6 — Navigation Compose
 
@@ -627,3 +655,29 @@ formula-knowledge/
 - Redatti esplicitamente gli header `Authorization` e `X-API-Key` per evitare la presenza di token o chiavi nei log.
 - Verificata la compilazione Android offline con `:app:compileDebugKotlin` (`BUILD SUCCESSFUL`).
 - Il logging strutturato backend e l’endpoint `/health` restano attività separate e non ancora completate.
+## 2026-09-03 — Sessione Firebase e login Google-only
+
+- Rimosso il salvataggio persistente duplicato del Firebase ID token: il token viene richiesto da FirebaseAuth e usato solo per la richiesta corrente.
+- Aggiunta la pulizia della chiave legacy `jwt_token` dal DataStore all’avvio dell’AuthViewModel.
+- Disabilitati nella UI Facebook placeholder ed email/password tramite `EMAIL_PASSWORD_AUTH_ENABLED = false`; il metodo Firebase resta predisposto per una futura riattivazione.
+- Mantenuta la distinzione guest/autenticato senza aggiungere capability o modifiche allo schema utenti.
+- Verificata la compilazione Android offline con `:app:compileDebugKotlin` (`BUILD SUCCESSFUL`).
+## 2026-09-03 — Hardening verifica Firebase
+
+- Sostituito il dettaglio dinamico delle eccezioni Firebase con una risposta generica `401 Token Firebase non valido`.
+- Aggiunto il controllo esplicito della presenza dell’UID nel token verificato.
+- Confermato il contratto guest/autenticato: endpoint dati `200` con API key, `/auth/me` senza token `401`, token non valido `401` generico.
+- Verificati compilazione Python, suite sandbox `6/6`, test HTTP guest/auth e `alembic check` senza modifiche pendenti.
+## 2026-09-03 — Claims Firebase verificati una sola volta
+
+- Introdotto `AuthenticatedUser` con entità utente e claims Firebase già verificati.
+- Mantenuta `get_current_user` come dependency compatibile per eventuali route future.
+- Aggiornate `/api/v1/auth/me` e `/api/v1/auth/preferences` per usare il contesto autenticato senza rieseguire `verify_id_token`.
+- Mantenuti invariati URL, metodi HTTP, payload e risposte delle route auth.
+- Verificati compilazione Python, suite sandbox `6/6`, profilo auth isolato `200`, guest `200`, token non valido `401`, `alembic check` e `git diff --check`.
+## 2026-09-03 — Strategia futura X-API-Key
+
+- Confermato il mantenimento temporaneo della `X-API-Key` per lo sviluppo locale e per non alterare il contratto corrente.
+- Registrato che la chiave distribuita nell’APK non è un segreto forte e non sarà considerata una protezione definitiva in produzione.
+- Pianificata una fase dedicata prima del deployment pubblico: valutazione della rimozione dalle route guest, HTTPS, rate limiting, CORS, logging sicuro, monitoraggio e staging con rollback.
+- Nessuna modifica applicativa o di schema eseguita in questo passaggio.

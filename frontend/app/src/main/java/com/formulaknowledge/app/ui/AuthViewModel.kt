@@ -42,6 +42,9 @@ class AuthViewModel(
 
     init {
         viewModelScope.launch {
+            tokenManager.clearLegacyToken()
+        }
+        viewModelScope.launch {
             tokenManager.hasSeenOnboardingFlow.collect { hasSeen ->
                 _uiState.value = _uiState.value.copy(
                     hasSeenOnboarding = hasSeen,
@@ -59,7 +62,6 @@ class AuthViewModel(
                 try {
                     val tokenResult = currentUser.getIdToken(true).await()
                     val token = tokenResult.token ?: return@launch
-                    tokenManager.saveToken(token) // Lo salviamo localmente per le API
                     _uiState.value = _uiState.value.copy(isLoggedIn = true, isLoading = true)
                     fetchProfile(token)
                 } catch (e: Exception) {
@@ -86,7 +88,6 @@ class AuthViewModel(
                     auth.signInWithEmailAndPassword(email, pass).await()
                 }
                 val token = authResult.user?.getIdToken(true)?.await()?.token ?: throw Exception("Token nullo")
-                tokenManager.saveToken(token)
                 _uiState.value = _uiState.value.copy(isLoggedIn = true, isLoading = false)
                 fetchProfile(token)
             } catch (e: Exception) {
@@ -117,8 +118,6 @@ class AuthViewModel(
                     
                     val authResult = FirebaseAuth.getInstance().signInWithCredential(firebaseCredential).await()
                     val firebaseToken = authResult.user?.getIdToken(true)?.await()?.token ?: throw Exception("Token Firebase nullo")
-                    
-                    tokenManager.saveToken(firebaseToken)
                     _uiState.value = _uiState.value.copy(isLoggedIn = true, isLoading = false)
                     fetchProfile(firebaseToken)
                 }
@@ -162,7 +161,6 @@ class AuthViewModel(
     fun logout() {
         viewModelScope.launch {
             FirebaseAuth.getInstance().signOut()
-            tokenManager.clearToken()
             _uiState.value = AuthUiState(hasSeenOnboarding = _uiState.value.hasSeenOnboarding, isCheckingOnboarding = false)
         }
     }

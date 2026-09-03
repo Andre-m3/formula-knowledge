@@ -262,6 +262,8 @@ Le migration modificano lo schema in modo versionato; non sostituiscono i seed d
 
 Il frontend usa Kotlin, Jetpack Compose, Material 3, Retrofit, OkHttp, Room, DataStore, Coil e Firebase.
 
+FirebaseAuth gestisce la sessione utente. La UI espone attualmente solo Google Sign-In; il codice email/password resta predisposto ma disabilitato dal flag `EMAIL_PASSWORD_AUTH_ENABLED`. `TokenManager` conserva solo lo stato onboarding e rimuove la chiave token legacy, senza persistire nuovi ID token.
+
 ### Flusso dati
 
 ```text

@@ -68,6 +68,9 @@ enum class AppScreen { HOME, CALENDAR, PERSONAL, UPDATES_LIST, TEAM_DETAIL, WEAT
 
 val AppBackgroundGradientColor = Color(0xFF0B0E14)
 
+// Provider mantenuto nel codice per una futura riattivazione, ma non esposto nella UI corrente.
+private const val EMAIL_PASSWORD_AUTH_ENABLED = false
+
 @Composable
 fun UpdatesScreen() {
     val context = LocalContext.current
@@ -2838,9 +2841,10 @@ fun AuthScreenLayout(
             )
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        if (EMAIL_PASSWORD_AUTH_ENABLED) {
+            Spacer(modifier = Modifier.height(16.dp))
 
-        // --- FACEBOOK BUTTON ---
+            // --- FACEBOOK BUTTON ---
         Button(
             onClick = { /* TODO: Integrazione SDK Facebook Login */ },
             modifier = Modifier.fillMaxWidth().height(54.dp),
@@ -2914,6 +2918,8 @@ fun AuthScreenLayout(
             shape = RoundedCornerShape(12.dp)
         )
 
+        }
+
         if (uiState.errorMessage != null) {
             Spacer(modifier = Modifier.height(12.dp))
             Text(
@@ -2924,9 +2930,10 @@ fun AuthScreenLayout(
             )
         }
 
-        Spacer(modifier = Modifier.height(32.dp))
+        if (EMAIL_PASSWORD_AUTH_ENABLED) {
+            Spacer(modifier = Modifier.height(32.dp))
 
-        // --- PULSANTI ACCEDI E REGISTRATI AFFIANCATI ---
+            // --- PULSANTI ACCEDI E REGISTRATI AFFIANCATI ---
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(16.dp)
@@ -2967,7 +2974,7 @@ fun AuthScreenLayout(
         }
     }
 }
-
+}
 
 @Composable
 fun StandingRow(

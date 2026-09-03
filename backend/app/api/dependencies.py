@@ -1,4 +1,5 @@
 import random
+from dataclasses import dataclass
 
 from fastapi import Depends, HTTPException, Security
 from fastapi.security import OAuth2PasswordBearer
@@ -34,25 +35,47 @@ def generate_unique_f1_tag(db: Session) -> str:
         num = random.randint(1, 99)
         tag = f"{adj}{noun}{num}"
 
-        # Valida che il tag non sia troppo corto
-        if len(tag) >= 9:
-            if not db.query(models.User).filter(models.User.f1_tag == tag).first():
-                return tag
+        if len(tag) >= 9 and not db.query(models.User).filter(models.User.f1_tag == tag).first():
+            return tag
 
 
-async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(database.get_db)):
+@dataclass(frozen=True)
+class AuthenticatedUser:
+    user: models.User
+    claims: dict
+
+
+async def get_current_user_context(
+    token: str = Depends(oauth2_scheme),
+    db: Session = Depends(database.get_db),
+) -> AuthenticatedUser:
     try:
         decoded_token = firebase_auth.verify_id_token(token)
         firebase_uid = decoded_token.get("uid")
-    except Exception as e:
-        raise HTTPException(status_code=401, detail=f"Token Firebase non valido: {str(e)}")
+    except Exception:
+        # Non esporre al client dettagli interni della verifica Firebase.
+        raise HTTPException(status_code=401, detail="Token Firebase non valido")
+
+    if not firebase_uid:
+        raise HTTPException(status_code=401, detail="Token Firebase non valido")
 
     user = db.query(models.User).filter(models.User.id == firebase_uid).first()
     if not user:
         new_tag = generate_unique_f1_tag(db)
-        user = models.User(id=firebase_uid, f1_tag=new_tag, display_name=decoded_token.get("name"))
+        user = models.User(
+            id=firebase_uid,
+            f1_tag=new_tag,
+            display_name=decoded_token.get("name"),
+        )
         db.add(user)
         db.commit()
         db.refresh(user)
 
-    return user
+    return AuthenticatedUser(user=user, claims=decoded_token)
+
+
+async def get_current_user(
+    context: AuthenticatedUser = Depends(get_current_user_context),
+) -> models.User:
+    """Compatibility dependency for routes that only need the user entity."""
+    return context.user
