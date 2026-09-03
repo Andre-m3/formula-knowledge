@@ -6,12 +6,12 @@ from datetime import datetime, timezone
 from app.database import SessionLocal
 from app.models import DriverCareerStats
 
-# Gli ID standard (Ergast/Jolpica) dei 20 piloti attuali (stagione 2026/2025)
+# Gli ID standard (Ergast/Jolpica) dei piloti gestiti dal seed (stagione 2026/2025)
 DRIVER_IDS = [
     "russell", "antonelli", "max_verstappen", "hadjar", "leclerc",
     "hamilton", "norris", "piastri", "alonso", "stroll", "gasly",
     "colapinto", "albon", "sainz", "arvid_lindblad", "lawson", "hulkenberg",
-    "bortoleto", "ocon", "bearman", "perez", "bottas"
+    "bortoleto", "ocon", "bearman", "perez", "bottas", "tsunoda"
 ]
 
 # ==============================================================
@@ -41,6 +41,7 @@ MANUAL_DRIVER_DATA = {
     "bearman": {"place_of_birth": "Chelmsford, England", "best_championship_result": "13th (2025)", "hat_tricks": 0, "grand_slams": 0},
     "perez": {"place_of_birth": "Guadalajara, Mexico", "best_championship_result": "2nd (2023)", "hat_tricks": 0, "grand_slams": 0},
     "bottas": {"place_of_birth": "Nastola, Finland", "best_championship_result": "2nd (2019, '20)", "hat_tricks": 2, "grand_slams": 0},
+    "tsunoda": {"place_of_birth": "Sagamihara, Japan", "best_championship_result": "14th (2021)", "hat_tricks": 0, "grand_slams": 0},
     "default": {"place_of_birth": "Unknown", "best_championship_result": "N/A", "hat_tricks": 0, "grand_slams": 0}
 }
 

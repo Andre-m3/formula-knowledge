@@ -27,6 +27,11 @@ import com.formulaknowledge.app.data.FormulaRepository
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
+private fun displayCalendarRaceName(name: String): String =
+    name.uppercase()
+        .replace("UNITED STATES GRAND PRIX", "UNITED STATES GP")
+        .replace("BAHRAIN GRAND PRIX IN MALAYSIA", "BAHRAIN (MALAYSIA) GP")
+
 @Composable
 fun CalendarScreen(
     onNavigateToHome: () -> Unit,
@@ -142,7 +147,7 @@ fun CalendarRaceCard(race: CalendarResponse, onClick: () -> Unit) {
                 lineHeight = 13.sp
             )
             Text(
-                text = race.name.uppercase().replace("UNITED STATES GRAND PRIX", "UNITED STATES GP"),
+                text = displayCalendarRaceName(race.name),
                 color = if (isCancelled) Color.White.copy(alpha = 0.2f) else if (isPast || isCurrent) Color.White else Color.White.copy(alpha = 0.3f),
                 fontSize = 19.sp, 
                 fontWeight = FontWeight.ExtraBold,

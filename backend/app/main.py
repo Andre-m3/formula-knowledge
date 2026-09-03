@@ -4,13 +4,11 @@ import firebase_admin
 from fastapi import FastAPI
 from firebase_admin import credentials
 
-from . import database, models
 from .api.endpoints import router as api_router
 
 
 app = FastAPI(title="Formula Knowledge API")
 
-models.Base.metadata.create_all(bind=database.engine)
 
 # --- FIREBASE SETUP ---
 firebase_cred_path = os.path.join(os.path.dirname(__file__), "firebase-adminsdk.json")

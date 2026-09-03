@@ -6,7 +6,7 @@ class Settings(BaseSettings):
     # Può essere sovrascritta dall'ambiente senza modificare il codice.
     F1_SEASON: int = 2026
     # Per lo sviluppo iniziale usiamo SQLite locale, poi lo cambieremo con PostgreSQL
-    DATABASE_URL: str = "sqlite:///./formula_knowledge.db"
+    DATABASE_URL: str = "sqlite:///./data/formula_knowledge.db"
     
     # Chiave segreta per autorizzare il traffico dall'App Android
     API_SECRET_KEY: str = "super_secret_formula_knowledge_key_2026!"

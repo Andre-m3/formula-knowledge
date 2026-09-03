@@ -48,7 +48,7 @@ La decisione applicata è:
 
 1. considerare `backend/app/models.py` il modello canonico attuale;
 2. verificare tutti gli import con `rg "from .*models|import .*models" backend`;
-3. confrontare le tabelle dichiarate con lo schema reale di `backend/formula_knowledge.db`;
+3. confrontare le tabelle dichiarate con lo schema reale di `backend/data/formula_knowledge.db`;
 4. spostare eventualmente i modelli canonici in un package organizzato per dominio;
 5. aggiornare gli import e i test;
 6. eliminare la vecchia struttura solo dopo una verifica completa.
@@ -69,9 +69,9 @@ Il package dovrebbe esportare una sola `Base` e una sola definizione per ogni ta
 
 ### 2. Preparare la migrazione SQLite → PostgreSQL
 
-La migrazione prevista tra circa tre mesi è un buon motivo per introdurre subito Alembic.
+La migrazione prevista tra circa tre mesi è il motivo per cui il baseline Alembic è stato introdotto subito; la migrazione verso PostgreSQL resta una fase successiva.
 
-Attualmente `Base.metadata.create_all()` crea le tabelle mancanti, ma non gestisce in modo sicuro:
+Il precedente bootstrap basato su `Base.metadata.create_all()` creava le tabelle mancanti, ma non gestiva in modo sicuro:
 
 - aggiunta di colonne;
 - rinomina di colonne;
@@ -83,8 +83,8 @@ Prima di PostgreSQL occorre quindi:
 
 1. mantenere un solo modello canonico;
 2. configurare `DATABASE_URL` tramite variabili d’ambiente;
-3. creare la prima migration Alembic;
-4. verificare la migration su una copia del database SQLite;
+3. ~~creare la prima migration Alembic;~~ Completato il 2026-09-03.
+4. ~~verificare la migration su una copia del database SQLite;~~ Completato il 2026-09-03.
 5. creare lo schema PostgreSQL;
 6. trasferire i dati;
 7. eseguire i test backend contro PostgreSQL;
@@ -165,44 +165,47 @@ La migrazione non è urgente per correggere l’app attuale, ma è consigliata p
 
 ## Roadmap operativa dettagliata
 
-### Fase 0 — Ripristino dell’ambiente
+### Fase 0 — Ripristino dell’ambiente — completata
 
-- Attivare il virtual environment Python corretto.
-- Verificare `python -m pip show sqlalchemy` dalla cartella `backend`.
-- Verificare che `python -m app.main` o il comando Uvicorn utilizzino lo stesso interprete.
-- Non usare il terminale come amministratore per risolvere un problema di dipendenze: il problema più probabile è l’interprete Python sbagliato.
+- ~~Attivare il virtual environment Python corretto.~~ Verificato nel virtual environment del progetto.
+- ~~Verificare python -m pip show sqlalchemy dalla cartella backend.~~ Verificato con esito positivo.
+- ~~Verificare che il comando Uvicorn utilizzi lo stesso interprete.~~ Verificato durante i test del backend.
+- ~~Non usare il terminale come amministratore per risolvere un problema di dipendenze.~~ La causa era l’interprete Python errato, non i privilegi.
 
-### Fase 1 — Backup e fotografia dello schema
+### Fase 1 — Backup e fotografia dello schema — completata
 
-- Arrestare Uvicorn e qualsiasi processo che utilizzi il database.
-- Copiare `backend/formula_knowledge.db` in un file di backup datato.
-- Elencare tabelle e colonne presenti nel database.
-- Verificare gli import dei due sistemi di modelli.
-- Eseguire i test backend esistenti.
+- ~~Arrestare Uvicorn e qualsiasi processo che utilizzi il database.~~ Eseguito prima delle operazioni sullo schema.
+- ~~Copiare backend/data/formula_knowledge.db in un file di backup datato.~~ Backup verificato e conservato.
+- ~~Elencare tabelle e colonne presenti nel database.~~ Verificato durante la separazione del database runtime.
+- ~~Verificare gli import dei due sistemi di modelli.~~ Completato; il modello canonico è app/models.py.
+- ~~Eseguire i test backend esistenti.~~ Suite sandbox superata.
 
 ### Fase 2 — Consolidamento dei modelli — completata
 
-- Confermare `backend/app/models.py` come fonte di verità.
+- Confermare backend/app/models.py come fonte di verità.
 - Portare nel modello canonico solo eventuali informazioni ancora utili del vecchio modulo.
-- Evitare di riutilizzare automaticamente le vecchie definizioni di `User` e `Team`.
-- Rimuovere il vecchio modulo solamente dopo aver aggiornato gli import — completato; i file sono stati salvati dall'utente come backup esterno.
+- Evitare di riutilizzare automaticamente le vecchie definizioni di User e Team.
+- Rimuovere il vecchio modulo solamente dopo aver aggiornato gli import — completato; i file sono stati salvati dall’utente come backup esterno.
 - Aggiungere o aggiornare i test per tabelle, relazioni e serializzazione.
 
-### Fase 3 — Migrazioni database
+### Fase 3 — Migrazioni database — baseline completata il 2026-09-03
 
-- Installare e configurare Alembic nel virtual environment.
-- Creare la configurazione collegata alla stessa `DATABASE_URL` dell’app.
-- Generare la migration iniziale basata sul modello canonico.
-- Testare upgrade e downgrade su una copia del database.
-- Evitare `seed.py` su un database contenente dati importanti: esegue `drop_all()` e ricrea le tabelle.
+- ~~Installare e configurare Alembic nel virtual environment.~~ Completato; versione Alembic fissata nelle dipendenze backend.
+- ~~Creare la configurazione collegata alla stessa DATABASE_URL dell’app.~~ Completato in backend/alembic/env.py.
+- ~~Generare la migration iniziale basata sul modello canonico.~~ Completato nella revisione baseline.
+- ~~Testare upgrade e downgrade su una copia del database.~~ Completato su database temporanei isolati.
+- ~~Registrare con stamp la baseline sul database runtime già verificato.~~ Completato; il database è alla revisione head.
+- ~~Evitare seed.py su un database contenente dati importanti: esegue drop_all() e ricrea le tabelle.~~ Documentato e mantenuto come regola operativa.
+- ~~Rimuovere create_all() dal bootstrap applicativo dopo aver standardizzato il comando Alembic nella procedura di avvio/deployment.~~ Completato il 2026-09-03; lo schema deve essere aggiornato esplicitamente con Alembic prima dell’avvio.
 
-### Fase 4 — Refactoring API — completata
+### Fase 4 — Refactoring API — refactoring completato; hardening pendente
 
 - Creare router separati per dominio — completato.
 - Spostare gli schemi Pydantic e le dipendenze comuni in moduli dedicati — completato.
-- Lasciare in `main.py` solo bootstrap e composizione — completato.
-- Verificare che gli URL, i parametri, l'ordine delle route risultati e la sicurezza restino invariati — completato.
-- Aggiungere endpoint `/health` e logging strutturato prima del deploy pubblico — pendente.
+- Lasciare in main.py solo bootstrap e composizione — completato.
+- Verificare che gli URL, i parametri, l’ordine delle route risultati e la sicurezza restino invariati — completato.
+- Aggiungere endpoint /health e logging strutturato prima del deploy pubblico — pendente.
+- Hardening logging Retrofit completato il 2026-09-03: BASIC solo in debug, NONE in release e redazione di Authorization/X-API-Key.
 
 ### Fase 5 — Autenticazione e autorizzazioni
 
@@ -214,10 +217,10 @@ La migrazione non è urgente per correggere l’app attuale, ma è consigliata p
 ### Fase 6 — Navigation Compose
 
 - Mantenere temporaneamente il design della bottom bar.
-- Estrarre uno `AppScaffold` e un `NavHost`.
+- Estrarre uno AppScaffold e un NavHost.
 - Convertire prima le destinazioni top-level: Home, Calendario, Classifiche, Personal.
 - Convertire poi le schermate dettaglio.
-- Usare ViewModel e `SavedStateHandle` per parametri e stato di navigazione.
+- Usare ViewModel e SavedStateHandle per parametri e stato di navigazione.
 - Aggiungere deep link per notifiche e contenuti condivisibili.
 
 ### Fase 7 — PostgreSQL e deployment
@@ -227,9 +230,20 @@ La migrazione non è urgente per correggere l’app attuale, ma è consigliata p
 - Eseguire le migration Alembic.
 - Importare e validare i dati.
 - Avviare Uvicorn con un processo supervisionato e configurazione da ambiente.
-- Aggiornare `API_BASE_URL` dell’app a un endpoint HTTPS pubblico.
+- Aggiornare API_BASE_URL dell’app a un endpoint HTTPS pubblico.
 - Verificare CORS, TLS, rate limiting e health check.
 
+### Fase 8 — Internazionalizzazione — pianificata, non iniziata
+
+- Usare le risorse Android come fonte di verità per i testi UI, con values come fallback inglese.
+- Aggiungere le traduzioni per italiano, francese, spagnolo e tedesco tramite values-it, values-fr, values-es e values-de.
+- Sostituire i testi hardcoded con stringResource in Compose e con getString nei punti non composable.
+- Usare stringhe parametrizzate e plurali Android per numeri, date, sessioni e messaggi variabili.
+- Mappare gli errori applicativi tramite codici stabili o sealed result, traducendoli solo nel frontend.
+- Non inserire traduzioni locali nel backend per le etichette UI; il backend deve restituire dati e codici strutturati.
+- Audit completo dei testi hardcoded, inclusi contentDescription, dialog, onboarding, snackbar e messaggi di errore.
+- Testare almeno inglese, italiano, francese, spagnolo e tedesco su emulatori/configurazioni locali.
+- Definire in seguito la strategia per contenuti esterni come news, nomi ufficiali dei GP e documenti FIA, che non sono automaticamente traducibili senza alterarne il significato.
 ## Aggiornamento manuale del database
 
 Il problema `No module named sqlalchemy` indica quasi certamente che il comando è stato eseguito con un Python globale invece del virtual environment del progetto. Nel repository il virtual environment esiste in:
@@ -271,7 +285,7 @@ Prima fare un backup del database e fermare Uvicorn:
 
 ```powershell
 cd C:\CodeProjects\formula-knowledge\formula-knowledge\backend
-Copy-Item .\formula_knowledge.db .\formula_knowledge.db.backup-$(Get-Date -Format yyyyMMdd-HHmmss)
+Copy-Item .\data\formula_knowledge.db .\data\formula_knowledge.db.backup-$(Get-Date -Format yyyyMMdd-HHmmss)
 ```
 
 Poi eseguire il round corretto:
@@ -344,7 +358,7 @@ L’interprete stampato deve essere quello sotto `.venv\Scripts\python.exe`.
 1. Eseguire il test manuale Android su installazione pulita e verificare che non venga ripristinata una Room obsoleta.
 2. Eliminare i database sandbox generici dopo aver verificato che i test li ricreino correttamente.
 3. Aggiungere uno stato UI distinto per errore race week e calendario, oltre alla splash iniziale.
-4. Preparare Alembic per la migrazione SQLite → PostgreSQL.
+4. ~~Preparare Alembic per la migrazione SQLite → PostgreSQL.~~ Baseline completata; resta la migrazione PostgreSQL.
 
 ### 2026-08-08 — Consolidato il manuale operativo
 
@@ -464,9 +478,9 @@ L’interprete stampato deve essere quello sotto `.venv\Scripts\python.exe`.
 
 1. ~~Validare manualmente i dati dei circuiti restanti e inserirli in `HISTORICAL_DATA` solo dopo conferma.~~ Completato il 2026-08-11.
 2. ~~Aggiungere una validazione esplicita che segnali i circuiti senza dati storici, senza introdurre fallback sportivi inventati.~~ Completato il 2026-08-11.
-3. `Rendere più robusti e transazionali anche `seed_driver_stats.py` e `seed_constructor_stats.py`.` Parte transazionale completata il 2026-08-11; resta eventualmente l'aggiunta di test permanenti dedicati fuori da `backend/tests`.
+3. `Rendere più robusti e transazionali `seed_driver_stats.py` e `seed_constructor_stats.py`.` Completato il 2026-08-11; resta eventualmente l'aggiunta di test permanenti dedicati fuori da `backend/tests`.
 4. Ricontrollare i fallback residui e verificare che i dati del calendario aggiornato non vengano sovrascritti da seed distruttivi.
-5. Proseguire il refactor della directory base con la separazione del database runtime e la valutazione dei requirements, poi preparare Alembic e la migrazione SQLite/PostgreSQL.
+5. Proseguire il refactor della directory base e preparare la migrazione SQLite/PostgreSQL; la baseline Alembic è stata completata il 2026-09-03.
 
 ### Refactor futuro della struttura root
 
@@ -535,20 +549,81 @@ formula-knowledge/
 
 ### Regole del refactor
 
-1. Non spostare contemporaneamente backend, frontend e database.
+1. ~~Non spostare contemporaneamente backend, frontend e database.~~ Rispettato durante il refactor del 2026-09-03.
 2. ~~Prima definire il `.gitignore` per `.venv`, `__pycache__`, database runtime, `.env` e credenziali.~~ Completato il 2026-08-11.
-3. Separare i dati runtime dai sorgenti, spostando il database in una directory `data/` solo dopo aver aggiornato `DATABASE_URL`.
+3. ~~Separare i dati runtime dai sorgenti, spostando il database in una directory `data/` solo dopo aver aggiornato `DATABASE_URL`.~~ Completato il 2026-09-03.
 4. ~~Spostare gli script operativi in `backend/scripts/` solo dopo aver verificato gli import relativi e i comandi documentati.~~ Completato il 2026-08-11.
-5. Conservare le fixture in `backend/tests/data/` e non mischiarle con il database runtime.
-6. Valutare se il file root `requirements.txt` sia necessario oppure se mantenere solo le dipendenze backend dichiarate in `backend/requirements.txt`.
-7. Spostare `info/` in `docs/info/` soltanto dopo aver verificato eventuali riferimenti esterni.
-8. Dopo ogni spostamento eseguire import, test backend, avvio Uvicorn e verifica dell’endpoint principale.
+5. ~~Conservare le fixture in `backend/tests/data/` e non mischiarle con il database runtime.~~ Verificato il 2026-09-03.
+6. ~~Valutare se il file root `requirements.txt` sia necessario oppure se mantenere solo le dipendenze backend dichiarate in `backend/requirements.txt`.~~ Completato il 2026-09-03.
+7. ~~Spostare `info/` in `docs/info/` dopo aver verificato eventuali riferimenti esterni.~~ Completato il 2026-09-03.
+8. ~~Dopo ogni spostamento eseguire import, test backend, avvio Uvicorn e verifica endpoint principale.~~ Verifica finale completata il 2026-09-03.
 
 ### Ordine futuro consigliato
 
-1. Pulizia degli artefatti generati e controllo `.gitignore`.
-2. Consolidamento dei file README/TODO e convenzioni di naming.
-3. Separazione del database runtime dai sorgenti.
-4. Separazione degli script operativi dal package `app`.
-5. Eventuale spostamento della documentazione in `docs/`.
-6. Verifica finale dei comandi di sviluppo, test e deployment.
+1. ~~Pulizia degli artefatti generati e controllo `.gitignore`.~~ Completato il 2026-08-11.
+2. ~~Consolidamento dei file README/TODO, convenzioni di naming e requirements.~~ Completato il 2026-09-03; backend/requirements.txt è il file dipendenze canonico.
+3. ~~Separazione del database runtime dai sorgenti.~~ Completato il 2026-09-03.
+4. ~~Separazione degli script operativi dal package `app`.~~ Completato il 2026-08-11.
+5. ~~Spostamento della documentazione in `docs/`.~~ Completato il 2026-09-03.
+6. ~~Verifica finale dei comandi di sviluppo, test e deployment.~~ Completata il 2026-09-03.
+
+## 2026-09-03 — Separazione database runtime
+
+- Spostato il database runtime da `backend/formula_knowledge.db` a `backend/data/formula_knowledge.db`.
+- Aggiornato `DATABASE_URL` e verificati hash SHA-256, `PRAGMA integrity_check` e risoluzione dell'engine SQLAlchemy.
+- Conservato il vecchio percorso come backup locale reversibile `formula_knowledge.db.migrated-backup-20260903`; aggiunto `backend/data/.gitkeep` per mantenere la directory nei cloni puliti.
+- Aggiornati README, TODO e istruzioni di backup; la suite sandbox resta verde con `6/6` test superati.
+
+## 2026-09-03 — Documentazione spostata in docs/info
+
+- Spostati i PDF di riferimento da `info/` a `docs/info/`.
+- Verificata l'assenza di riferimenti applicativi al vecchio percorso e conservate intatte entrambe le dimensioni dei file.
+- Aggiornati il tree del README e la regola corrispondente nel TODO.
+
+## 2026-09-03 — Consolidamento requirements
+
+- Verificato che il requirements.txt root e backend/requirements.txt avessero lo stesso contenuto semantico.
+- Rimosso il duplicato root non tracciato; backend/requirements.txt resta il file dipendenze canonico.
+- Aggiornato il tree del README e completato il relativo punto della roadmap.
+
+## 2026-09-03 — Chiusura regole del refactor
+
+- Completate le regole 1, 3, 5, 6 e 8: spostamenti sequenziali, database in `backend/data/`, fixture separate, requirements consolidati e verifica tecnica finale.
+- Completati i punti 5 e 6 dell'ordine futuro: documentazione in `docs/info/` e verifica finale dei comandi/servizi.
+- Test eseguiti: compilazione Python, import app/script, suite sandbox `6/6`, Uvicorn su localhost, endpoint `/api/v1/circuit/1` con risposte `200` e `403` attese.
+
+## 2026-09-03 — Tsunoda e denominazione Bahrain
+
+- Aggiunto Yuki Tsunoda (#22, nazionalità Japanese) al roster Racing Bulls in backend/scripts/seed.py.
+- Aggiunto l'ID Jolpica/Ergast tsunoda e i dati manuali di carriera in backend/scripts/seed_driver_stats.py, così il seed può creare la riga necessaria a GET /api/v1/drivers/tsunoda/stats.
+- Mantenuto Liam Lawson nel roster Racing Bulls: la presenza occasionale in un'altra vettura non viene modellata come cambio anagrafico stabile.
+- Mantenuto nel backend/database il nome canonico del Bahrain; CalendarScreen abbrevia solo la visualizzazione in BAHRAIN (MALAYSIA) GP.
+- La città e il paese restano forniti dai dati calendario, quindi non viene duplicata o hardcodata la località nella UI.
+- Verifiche completate: compilazione Python, controllo roster/ID e numeri univoci, suite sandbox 6/6, test HTTP isolato dell'endpoint Tsunoda (200) su SQLite in memoria e :app:compileDebugKotlin --offline (BUILD SUCCESSFUL).
+## 2026-09-03 — Fase 3 e internazionalizzazione
+
+- Configurato Alembic in backend/alembic/ con env.py collegato a app.core.config.settings e alla Base SQLAlchemy canonica.
+- Verifica finale: pip check senza conflitti, compilazione Python/Alembic, current/check alla revisione head, suite sandbox 6/6, ciclo upgrade/downgrade isolato e compilazione Android offline riuscita.
+- Generata la revisione iniziale 9f34e5026ddc_baseline_schema.py confrontando i modelli con un database SQLite vuoto in memoria.
+- Verificati stamp/check sulla copia del database runtime e upgrade/downgrade su database temporanei; il database runtime è stato poi registrato alla revisione head senza ricreare tabelle o dati.
+- Aggiunti alembic==1.13.2 e Mako==1.4.1 a backend/requirements.txt.
+- Pianificata la localizzazione completa Android per inglese, italiano, francese, spagnolo e tedesco tramite risorse separate per lingua; implementazione rimandata.
+- Diagnosi iniziale bandiera Tsunoda: flag_japan.xml era presente e funzionava nel calendario, ma mancavano i casi tsunoda in getDriverCountryForFlag() e getDriverCarNumber(); entrambi sono stati corretti nella migration UI successiva.
+## 2026-09-03 — Integrazione completa Tsunoda
+
+- Aggiunti i mapping UI tsunoda → japan e tsunoda → 22 in UpdatesScreen.kt.
+- Applicata la revisione Alembic e71272d84bd5_add_tsunoda_to_driver_roster.py al database runtime: Tsunoda è nella tabella drivers con id 23, team Racing Bulls e numero 22.
+- La migration è idempotente, non modifica statistiche o risultati e protegge da conflitti sul numero 22; il downgrade resta non distruttivo.
+- Verificati Alembic current/check, compilazione Python, endpoint reale GET /api/v1/drivers/tsunoda/stats con 200, suite backend 6/6 e compilazione Android offline riuscita.
+## 2026-09-03 — Bootstrap schema affidato ad Alembic
+
+- Rimosso `Base.metadata.create_all()` da `backend/app/main.py`: l’avvio dell’API non modifica più silenziosamente lo schema.
+- Confermato che `backend/scripts/seed.py` resta l’unico comando distruttivo per il ripristino completo dei dati iniziali.
+- Confermato il ciclo operativo: `alembic current`/`check` per diagnosi, `alembic upgrade head` per applicare migrazioni, `scripts.sync_database` per sincronizzare i dati.
+- Verifiche completate: compilazione Python, suite backend `6/6`, `alembic current/check`, import applicativo e test HTTP isolato su `/api/v1/circuit/1` con `200` e `403` attesi.
+## 2026-09-03 — Hardening logging client
+
+- Ridotto il logging OkHttp/Retrofit a `BASIC` in debug e disattivato in release.
+- Redatti esplicitamente gli header `Authorization` e `X-API-Key` per evitare la presenza di token o chiavi nei log.
+- Verificata la compilazione Android offline con `:app:compileDebugKotlin` (`BUILD SUCCESSFUL`).
+- Il logging strutturato backend e l’endpoint `/health` restano attività separate e non ancora completate.

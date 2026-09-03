@@ -15,6 +15,13 @@ Il progetto è composto da:
 ```text
 formula-knowledge/
 ├── backend/
+│   ├── alembic/
+│   │   ├── env.py
+│   │   ├── script.py.mako
+│   │   └── versions/
+│   │       ├── 9f34e5026ddc_baseline_schema.py
+│   │       └── e71272d84bd5_add_tsunoda_to_driver_roster.py
+│   ├── alembic.ini                  # Configurazione migration schema
 │   ├── app/
 │   │   ├── api/
 │   │   │   ├── endpoints.py             # aggregatore dei router
@@ -49,7 +56,8 @@ formula-knowledge/
 │   ├── tests/
 │   │   ├── data/                         # Fixture JSON dei test
 │   │   └── simulate_and_test.py
-│   ├── formula_knowledge.db
+│   ├── data/
+│   │   └── formula_knowledge.db
 │   ├── requirements.txt
 │   └── Dockerfile
 ├── frontend/
@@ -81,8 +89,9 @@ formula-knowledge/
 │   └── gradlew / gradlew.bat
 ├── .gitignore
 ├── .venv/
-├── info/
-├── requirements.txt                       # Snapshot locale dell'ambiente Python
+├── docs/
+│   └── info/
+
 ├── todo.md
 └── readme.md
 ```
@@ -94,10 +103,11 @@ formula-knowledge/
 Il backend utilizza attualmente SQLite con URL predefinito:
 
 ```text
-sqlite:///./formula_knowledge.db
+sqlite:///./data/formula_knowledge.db
 ```
 
 Il percorso è relativo alla directory di esecuzione. Per questo motivo i comandi backend devono essere eseguiti dalla cartella `backend`.
+Il database runtime e i relativi backup locali sono esclusi dal versionamento tramite il `.gitignore` root.
 
 Il virtual environment del progetto si trova nella root:
 
@@ -242,6 +252,12 @@ Le tabelle principali sono:
 
 La vecchia cartella `backend/app/models/` è stata rimossa dopo la verifica degli import. Il codice operativo utilizza esclusivamente `backend/app/models.py` e `backend/app/database.py`.
 
+### Migrazioni dello schema
+
+La configurazione della connessione e letta da `app/core/config.py`. La revisione baseline `9f34e5026ddc` descrive lo schema SQLAlchemy canonico; il database runtime e attualmente registrato alla revisione `e71272d84bd5` tramite `alembic_version`.
+
+Le migration modificano lo schema in modo versionato; non sostituiscono i seed dei dati. Prima di ogni modifica strutturale si esegue un backup e si revisiona manualmente il file generato con autogenerate.
+
 ## Frontend Android
 
 Il frontend usa Kotlin, Jetpack Compose, Material 3, Retrofit, OkHttp, Room, DataStore, Coil e Firebase.
@@ -296,6 +312,23 @@ Il backend deve essere avviato con `--host 0.0.0.0` e il firewall deve consentir
 
 Tutti i comandi si eseguono da `backend`, con il virtual environment attivo.
 
+### Migrazioni Alembic
+
+Dalla directory backend, con il virtual environment attivo:
+
+~~~powershell
+python -m alembic current
+python -m alembic check
+python -m alembic upgrade head
+~~~
+
+current mostra la revisione applicata; check segnala se i modelli e l’ultima migration non sono allineati; upgrade head applica le revisioni mancanti. Per creare una nuova revisione:
+
+~~~powershell
+python -m alembic revision --autogenerate -m "descrizione"
+~~~
+
+Il file generato deve essere sempre revisionato e testato prima di applicarlo. downgrade è riservato a copie o procedure deliberate con backup. Non usare scripts.seed per aggiornare lo schema: il seed è distruttivo e gestisce i dati iniziali.
 ### Aggiornamento di un singolo round
 
 ```powershell
@@ -392,22 +425,24 @@ Su un server Linux sarà possibile configurare:
 
 ## Avvertenze operative
 
-- Fare un backup di `backend/formula_knowledge.db` prima di seed o modifiche allo schema.
+- Fare un backup di `backend/data/formula_knowledge.db` prima di seed o modifiche allo schema.
 - Non usare `scripts.seed` come comando di aggiornamento ordinario.
 - Eseguire sempre Uvicorn dalla cartella `backend`, perché il percorso SQLite è relativo.
 - Non committare credenziali Firebase Admin, `.env` o chiavi private.
+- Il client Retrofit usa log ridotti e redige gli header sensibili; in release il logging HTTP è disattivato.
 - Verificare il database corretto quando si usa un SQLite viewer.
 - Non cancellare la cartella `backend/tests`: contiene fixture e test utili.
 
 ## Modifiche future previste
 
-- introdurre Alembic per le migrazioni;
+- mantenere Alembic come sistema versionato per le migrazioni dello schema;
 - consolidare o archiviare definitivamente i vecchi modelli;
 - migrare SQLite a PostgreSQL;
 - aggiungere endpoint `/health`, logging strutturato e rate limiting prima del deployment pubblico;
 - sostituire la navigazione manuale con Navigation Compose;
 - migliorare gli stati di errore e sincronizzazione offline;
 - aggiungere autorizzazioni backend per AI custom, notifiche, live timing e widget;
+- localizzare l'intera app per inglese, italiano, francese, spagnolo e tedesco tramite risorse Android;
 - preparare deployment pubblico con HTTPS, secret manager, backup e health check.
 
 
@@ -430,4 +465,4 @@ La prima fase di refactoring è stata verificata con compilazione Python e suite
 - `seed_driver_stats.py` e `seed_constructor_stats.py` applicano gli aggiornamenti con un singolo commit, rollback su errore e chiusura garantita della sessione.
 - La suite sandbox resta verde (`6/6`); i comportamenti transazionali dei due seed statistici sono stati verificati con sessioni simulate isolate dal database reale.
 
-Restano da affrontare la centralizzazione degli hardcode di stagione ancora presenti in alcuni endpoint/UI, l'eventuale aggiunta di test permanenti dedicati ai seed e il refactor della directory base prima della preparazione Alembic/PostgreSQL.
+Restano eventualmente da aggiungere test permanenti dedicati ai seed; il refactor della directory base e la baseline Alembic sono già stati completati.

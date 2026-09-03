@@ -45,6 +45,7 @@ DRIVERS_DATA = [
     # RB
     {"first_name": "Arvid", "last_name": "Lindblad", "number": 41, "nationality": "British", "team_name": "Visa Cash App Racing Bulls"},
     {"first_name": "Liam", "last_name": "Lawson", "number": 30, "nationality": "New Zealander", "team_name": "Visa Cash App Racing Bulls"},
+    {"first_name": "Yuki", "last_name": "Tsunoda", "number": 22, "nationality": "Japanese", "team_name": "Visa Cash App Racing Bulls"},
     # Audi
     {"first_name": "Nico", "last_name": "Hülkenberg", "number": 27, "nationality": "German", "team_name": "Audi Revolut F1 Team"},
     {"first_name": "Gabriel", "last_name": "Bortoleto", "number": 5, "nationality": "Brazilian", "team_name": "Audi Revolut F1 Team"},
@@ -205,12 +206,12 @@ HISTORICAL_DATA = {
         "circuit_length": "4.259 km",
         "corners": 14,
         "lap_record": "1:11.097 (Lewis Hamilton, 2021)",
-        "previous_winner": "Oscar Piastri (2025)",
+        "previous_winner": "Lando Norris (2026)",
         "most_driver_wins": "Jim Clark (4)",
         "most_constructor_wins": "Ferrari (8)",
         "most_driver_podiums": "Clark/Lauda (6)",
         "most_poles": "Arnoux/Verstappen (3)",
-        "num_races_held": 35,
+        "num_races_held": 36,
     },
 
     "Autodromo Nazionale di Monza": {
@@ -313,7 +314,7 @@ HISTORICAL_DATA = {
         "most_driver_wins": "Michael Schumacher (4)",
         "most_constructor_wins": "Ferrari/McLaren (9)",
         "most_driver_podiums": "Michael Schumacher (10)",
-        "most_poles": "Senna/Häkkinen /Massa/Barrichello /Hamilton (3)",
+        "most_poles": "Senna/Häkkinen/Massa /Barrichello/Hamilton (3)",
         "num_races_held": 42,
     },
 

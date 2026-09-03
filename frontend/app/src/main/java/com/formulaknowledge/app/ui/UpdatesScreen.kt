@@ -1473,6 +1473,7 @@ fun getDriverCarNumber(driverId: String): String {
         "sainz" -> "55"
         "arvid_lindblad" -> "41"
         "lawson" -> "30"
+        "tsunoda" -> "22"
         "hulkenberg" -> "27"
         "bortoleto" -> "5"
         "ocon" -> "31"
@@ -1513,6 +1514,7 @@ fun getDriverCountryForFlag(driverId: String): String {
         "bortoleto" -> "brazil"
         "perez" -> "mexico"
         "bottas" -> "finland"
+        "tsunoda" -> "japan"
         else -> ""
     }
 }

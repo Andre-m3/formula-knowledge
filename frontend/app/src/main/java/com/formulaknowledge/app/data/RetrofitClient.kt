@@ -11,7 +11,14 @@ import java.util.concurrent.TimeUnit
 object RetrofitClient {
 
     private val logging = HttpLoggingInterceptor().apply {
-        level = HttpLoggingInterceptor.Level.BODY
+        // BASIC evita di riversare body e token nei log; in release il logging è disattivato.
+        level = if (BuildConfig.DEBUG) {
+            HttpLoggingInterceptor.Level.BASIC
+        } else {
+            HttpLoggingInterceptor.Level.NONE
+        }
+        redactHeader("Authorization")
+        redactHeader("X-API-Key")
     }
 
     private val authInterceptor = Interceptor { chain ->
