@@ -8,5 +8,6 @@ data class RaceResultResponse(
     val time: String,
     val q1: String? = null,
     val q2: String? = null,
-    val q3: String? = null
+    val q3: String? = null,
+    val is_session_only: Boolean = false
 )

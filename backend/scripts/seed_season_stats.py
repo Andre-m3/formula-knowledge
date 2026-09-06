@@ -1,3 +1,4 @@
+import app  # Configures the system TLS trust store before requests.
 import requests
 import time
 from sqlalchemy.orm import Session
@@ -6,6 +7,7 @@ from datetime import datetime, timezone
 from app.database import SessionLocal
 from app.models import DriverSeasonStats, ConstructorSeasonStats
 from app.core.config import settings
+from .seed_driver_stats import DRIVER_IDS
 
 YEAR = settings.F1_SEASON
 
@@ -20,6 +22,21 @@ def fetch_api(url):
             time.sleep(2)
     return {}
 
+
+def ensure_managed_driver_season_stats(db: Session, driver_ids: list[str] = DRIVER_IDS) -> int:
+    """Creates zero-valued current-season rows for every driver the app can show."""
+    existing_ids = {
+        driver_id
+        for (driver_id,) in db.query(DriverSeasonStats.driver_id)
+        .filter(DriverSeasonStats.year == YEAR)
+        .all()
+    }
+    missing_ids = [driver_id for driver_id in driver_ids if driver_id not in existing_ids]
+    db.add_all(DriverSeasonStats(driver_id=driver_id, year=YEAR) for driver_id in missing_ids)
+    db.flush()
+    return len(missing_ids)
+
+
 def seed_season():
     db: Session = SessionLocal()
     print(f"🌱 Avvio Seeding delle Statistiche Stagionali {YEAR}...")
@@ -27,6 +44,8 @@ def seed_season():
     # Svuotiamo le tabelle stagionali attuali per evitare duplicati
     db.query(DriverSeasonStats).filter(DriverSeasonStats.year == YEAR).delete()
     db.query(ConstructorSeasonStats).filter(ConstructorSeasonStats.year == YEAR).delete()
+    created_driver_rows = ensure_managed_driver_season_stats(db)
+    print(f"👤 Inizializzate {created_driver_rows} righe stagionali per i piloti gestiti.")
 
     for round_number in range(1, 30):
         races = fetch_api(f"https://api.jolpi.ca/ergast/f1/{YEAR}/{round_number}/results.json").get("RaceTable", {}).get("Races", [])

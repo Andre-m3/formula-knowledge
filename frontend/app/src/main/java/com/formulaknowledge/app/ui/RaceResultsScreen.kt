@@ -6,6 +6,9 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.lazy.LazyColumn
@@ -38,6 +41,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.sp
+import kotlin.math.abs
+import kotlin.math.min
 import com.formulaknowledge.app.data.RaceResultResponse
 import com.formulaknowledge.app.data.FormulaDatabase
 import com.formulaknowledge.app.data.FormulaRepository
@@ -54,47 +59,68 @@ fun RaceResultsScreen(
     val repository = remember { FormulaRepository(database) }
 
     val resultsEntities by repository.getRaceResults(roundNumber, sessionType).collectAsState(initial = emptyList())
-    val rawResults = resultsEntities.map { RaceResultResponse(it.position, it.driver, it.team, it.points, it.time, it.q1, it.q2, it.q3) }
+    val rawResults = resultsEntities.map { RaceResultResponse(it.position, it.driver, it.team, it.points, it.time, it.q1, it.q2, it.q3, it.is_session_only) }
     
-    var selectedQTab by remember { mutableStateOf("") }
     val isQuali = sessionType == "quali" || sessionType == "sprint_shootout"
-    
-    val results = remember(rawResults, selectedQTab, sessionType) {
-        if (isQuali) {
-            rawResults.filter { res ->
-                when (selectedQTab) {
-                    "Q1", "SQ1" -> !res.q1.isNullOrBlank()
-                    "Q2", "SQ2" -> !res.q2.isNullOrBlank()
-                    "Q3", "SQ3" -> !res.q3.isNullOrBlank()
-                    else -> true
+    val qTabs = if (sessionType == "quali") listOf("Q1", "Q2", "Q3") else if (sessionType == "sprint_shootout") listOf("SQ1", "SQ2", "SQ3") else emptyList()
+    var selectedQTab by remember(sessionType) { mutableStateOf(qTabs.lastOrNull().orEmpty()) }
+    val isPractice = sessionType in setOf("fp1", "fp2", "fp3")
+    val isTimingSession = isQuali || isPractice
+    var resultsRequestCompleted by remember(roundNumber, sessionType) { mutableStateOf(false) }
+    var qualiSwipeOffset by remember(sessionType) { mutableFloatStateOf(0f) }
+
+    val qualiSwipeModifier = if (isQuali) {
+        Modifier.draggable(
+            orientation = Orientation.Horizontal,
+            state = rememberDraggableState { delta ->
+                qualiSwipeOffset += delta
+            },
+            onDragStopped = {
+                val currentIndex = qTabs.indexOf(selectedQTab)
+                    .takeIf { it >= 0 }
+                    ?: qTabs.lastIndex
+                when {
+                    qualiSwipeOffset < -110f && currentIndex < qTabs.lastIndex -> {
+                        selectedQTab = qTabs[currentIndex + 1]
+                    }
+                    qualiSwipeOffset > 110f && currentIndex > 0 -> {
+                        selectedQTab = qTabs[currentIndex - 1]
+                    }
                 }
-            }.map { res ->
-                val specificTime = when (selectedQTab) {
-                    "Q1", "SQ1" -> res.q1
-                    "Q2", "SQ2" -> res.q2
-                    "Q3", "SQ3" -> res.q3
-                    else -> res.time
-                } ?: res.time
-                res.copy(time = specificTime)
-            }.sortedBy { 
-                val t = parseF1Time(it.time)
-                if (t == 0L) Long.MAX_VALUE else t 
+                qualiSwipeOffset = 0f
+            },
+        )
+    } else {
+        Modifier
+    }
+    fun resultsForTab(tab: String): List<RaceResultResponse> {
+        if (!isQuali) return rawResults
+
+        return rawResults.filter { res ->
+            when (tab) {
+                "Q1", "SQ1" -> !res.q1.isNullOrBlank()
+                "Q2", "SQ2" -> !res.q2.isNullOrBlank()
+                "Q3", "SQ3" -> !res.q3.isNullOrBlank()
+                else -> true
             }
-        } else {
-            rawResults
+        }.map { res ->
+            val specificTime = when (tab) {
+                "Q1", "SQ1" -> res.q1
+                "Q2", "SQ2" -> res.q2
+                "Q3", "SQ3" -> res.q3
+                else -> res.time
+            } ?: res.time
+            res.copy(time = specificTime)
+        }.sortedBy {
+            val timeMs = parseF1Time(it.time)
+            if (timeMs == 0L) Long.MAX_VALUE else timeMs
         }
     }
-
-    val leaderTimeMs = remember(results, isQuali) {
-        if (isQuali && results.isNotEmpty()) {
-            parseF1Time(results.first().time)
-        } else 0L
-    }
-
-    val isLoading = rawResults.isEmpty()
+    val isLoading = rawResults.isEmpty() && !resultsRequestCompleted
 
     LaunchedEffect(roundNumber, sessionType) {
         repository.refreshRaceResults(roundNumber, sessionType)
+        resultsRequestCompleted = true
     }
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
@@ -148,6 +174,9 @@ fun RaceResultsScreen(
             }
 
             val titleText = when (sessionType) {
+                "fp1" -> "FP1\nRESULTS"
+                "fp2" -> "FP2\nRESULTS"
+                "fp3" -> "FP3\nRESULTS"
                 "sprint_shootout" -> "SPRINT QUALI\nRESULTS"
                 "quali" -> "QUALI\nRESULTS"
                 "sprint" -> "SPRINT\nRESULTS"
@@ -180,11 +209,6 @@ fun RaceResultsScreen(
 
         // --- TABS PER LE QUALIFICHE ---
         if (isQuali) {
-            val qTabs = if (sessionType == "quali") listOf("Q1", "Q2", "Q3") else listOf("SQ1", "SQ2", "SQ3")
-            LaunchedEffect(Unit) {
-                if (selectedQTab.isBlank()) selectedQTab = qTabs.last()
-            }
-            
             Row(modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp), horizontalArrangement = Arrangement.Center) {
                 Row(modifier = Modifier.background(Color.White.copy(alpha = 0.04f), RoundedCornerShape(12.dp)).padding(4.dp)) {
                     qTabs.forEach { tab ->
@@ -197,46 +221,121 @@ fun RaceResultsScreen(
             }
         }
 
-        if (isLoading) {
-            Column {
-                ShimmerPodiumHorizontalCard(height = 86.dp)
-                Spacer(modifier = Modifier.height(8.dp))
-                ShimmerPodiumHorizontalCard(height = 72.dp)
-                Spacer(modifier = Modifier.height(8.dp))
-                ShimmerPodiumHorizontalCard(height = 72.dp)
-                Spacer(modifier = Modifier.height(12.dp))
-                repeat(7) { ShimmerResultRow() }
+        val resultsAreaModifier = Modifier
+            .fillMaxWidth()
+            .weight(1f)
+            .then(qualiSwipeModifier)
+
+        if (isQuali) {
+            AnimatedContent(
+                targetState = selectedQTab,
+                transitionSpec = {
+                    val isForward = qTabs.indexOf(targetState) > qTabs.indexOf(initialState)
+                    if (isForward) {
+                        (slideInHorizontally { width -> width } + fadeIn()) togetherWith
+                            (slideOutHorizontally { width -> -width } + fadeOut())
+                    } else {
+                        (slideInHorizontally { width -> -width } + fadeIn()) togetherWith
+                            (slideOutHorizontally { width -> width } + fadeOut())
+                    }.using(SizeTransform(clip = false))
+                },
+                modifier = resultsAreaModifier,
+                label = "QualifyingResultsTransition",
+            ) { displayedTab ->
+                val displayedResults = resultsForTab(displayedTab)
+                SessionResultsContent(
+                    rawResults = rawResults,
+                    results = displayedResults,
+                    isLoading = isLoading,
+                    isQuali = true,
+                    isPractice = isPractice,
+                    isQ3 = displayedTab == "Q3" || displayedTab == "SQ3",
+                    leaderTimeMs = parseF1Time(displayedResults.firstOrNull()?.time.orEmpty()),
+                    onDriverClick = onDriverClick,
+                    modifier = Modifier.graphicsLayer {
+                        val progress = min(1f, abs(qualiSwipeOffset) / 500f)
+                        alpha = 1f - (progress * 0.5f)
+                        scaleX = 1f - (progress * 0.05f)
+                    },
+                )
             }
         } else {
-            // Se è una Qualifica mostriamo solo 1 vincitore (Poleman). Se gara/sprint i 3 a podio.
-            val inFocusCount = if (isQuali) 1 else 3
-            val focusResults = results.take(inFocusCount)
-            val otherResults = results.drop(inFocusCount)
-
-            LazyColumn(contentPadding = PaddingValues(bottom = 120.dp)) {
-                item {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        val colors = listOf(Color(0xFFFFD700), Color(0xFFC0C0C0), Color(0xFFCD7F32))
-                        focusResults.forEachIndexed { index, res ->
-                            val displayPos = if (isQuali) index + 1 else res.position
-                            val isQ3 = selectedQTab == "Q3" || selectedQTab == "SQ3"
-                            PodiumHorizontalCard(res, displayPos, colors.getOrElse(index) { Color.White }, isQuali, isQ3, index == 0, leaderTimeMs, onDriverClick)
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(12.dp))
-                }
-
-                itemsIndexed(otherResults) { index, result ->
-                    val displayPos = if (isQuali) inFocusCount + index + 1 else result.position
-                    ResultRow(result, displayPos, isQuali, leaderTimeMs, onDriverClick)
-                }
-            }
+            SessionResultsContent(
+                rawResults = rawResults,
+                results = rawResults,
+                isLoading = isLoading,
+                isQuali = false,
+                isPractice = isPractice,
+                isQ3 = false,
+                leaderTimeMs = if (isTimingSession) parseF1Time(rawResults.firstOrNull()?.time.orEmpty()) else 0L,
+                onDriverClick = onDriverClick,
+                modifier = resultsAreaModifier,
+            )
         }
     }
 }
 
 @Composable
-fun PodiumHorizontalCard(result: RaceResultResponse, displayPosition: Int, color: Color, isQuali: Boolean, isQ3: Boolean, isLeader: Boolean, leaderTimeMs: Long, onDriverClick: (String) -> Unit) {
+private fun SessionResultsContent(
+    rawResults: List<RaceResultResponse>,
+    results: List<RaceResultResponse>,
+    isLoading: Boolean,
+    isQuali: Boolean,
+    isPractice: Boolean,
+    isQ3: Boolean,
+    leaderTimeMs: Long,
+    onDriverClick: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    if (isLoading) {
+        Column(modifier = modifier.fillMaxSize()) {
+            ShimmerPodiumHorizontalCard(height = 86.dp)
+            Spacer(modifier = Modifier.height(8.dp))
+            ShimmerPodiumHorizontalCard(height = 72.dp)
+            Spacer(modifier = Modifier.height(8.dp))
+            ShimmerPodiumHorizontalCard(height = 72.dp)
+            Spacer(modifier = Modifier.height(12.dp))
+            repeat(7) { ShimmerResultRow() }
+        }
+    } else if (rawResults.isEmpty()) {
+        Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text(
+                "RESULTS NOT AVAILABLE YET.\nTRY AGAIN SHORTLY.",
+                color = Color.White.copy(alpha = 0.55f),
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
+            )
+        }
+    } else {
+        val inFocusCount = if (isQuali) 1 else 3
+        val focusResults = results.take(inFocusCount)
+        val otherResults = results.drop(inFocusCount)
+
+        LazyColumn(
+            modifier = modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = 120.dp),
+        ) {
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val colors = listOf(Color(0xFFFFD700), Color(0xFFC0C0C0), Color(0xFFCD7F32))
+                    focusResults.forEachIndexed { index, res ->
+                        val displayPos = if (isQuali) index + 1 else res.position
+                        PodiumHorizontalCard(res, displayPos, colors.getOrElse(index) { Color.White }, isQuali, isPractice, isQ3, index == 0, leaderTimeMs, onDriverClick)
+                    }
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+
+            itemsIndexed(otherResults) { index, result ->
+                val displayPos = if (isQuali) inFocusCount + index + 1 else result.position
+                ResultRow(result, displayPos, isQuali, isPractice, leaderTimeMs, onDriverClick)
+            }
+        }
+    }
+}
+@Composable
+fun PodiumHorizontalCard(result: RaceResultResponse, displayPosition: Int, color: Color, isQuali: Boolean, isPractice: Boolean, isQ3: Boolean, isLeader: Boolean, leaderTimeMs: Long, onDriverClick: (String) -> Unit) {
     val driverNameParts = result.driver.split(" ")
     val lastName = driverNameParts.lastOrNull()?.uppercase() ?: ""
     val firstName = driverNameParts.dropLast(1).joinToString(" ").uppercase()
@@ -248,7 +347,7 @@ fun PodiumHorizontalCard(result: RaceResultResponse, displayPosition: Int, color
     val pointsOrStatus = if (isDnf) {
         if (isDsq) "DSQ" else if (isDns) "DNS" else "DNF"
     } else {
-        if (isQuali) {
+        if (isQuali || isPractice) {
             if (isLeader) {
                 result.time
             } else {
@@ -263,16 +362,16 @@ fun PodiumHorizontalCard(result: RaceResultResponse, displayPosition: Int, color
     val bottomText = if (isLeader) {
         if (isQuali) {
             if (isQ3) "POLEMAN" else ""
-        } else "WINNER"
+        } else if (isPractice) "FASTEST" else "WINNER"
     } else if (!isDnf) {
-        if (isQuali) result.time else result.time
+        result.time
     } else ""
     
     Surface(
         modifier = Modifier
             .fillMaxWidth()
             .height(if (isLeader) 78.dp else 68.dp)
-            .clickable { onDriverClick(result.driver) },
+            .clickable(enabled = !result.is_session_only) { onDriverClick(result.driver) },
         shape = RoundedCornerShape(16.dp),
         color = Color.White.copy(alpha = 0.02f),
         border = BorderStroke(if (isLeader) 2.dp else 1.dp, color.copy(alpha = if (isLeader) 0.8f else 0.4f))
@@ -361,11 +460,11 @@ fun PodiumHorizontalCard(result: RaceResultResponse, displayPosition: Int, color
                     if (bottomText.isNotEmpty()) {
                         Text(
                             text = bottomText,
-                            color = if (isLeader && (bottomText == "POLEMAN" || bottomText == "WINNER")) color else Color.White.copy(alpha = 0.5f),
-                            fontSize = if (isLeader && (bottomText == "POLEMAN" || bottomText == "WINNER")) 10.sp else 13.sp,
+                            color = if (isLeader && (bottomText == "POLEMAN" || bottomText == "FASTEST" || bottomText == "WINNER")) color else Color.White.copy(alpha = 0.5f),
+                            fontSize = if (isLeader && (bottomText == "POLEMAN" || bottomText == "FASTEST" || bottomText == "WINNER")) 10.sp else 13.sp,
                             fontWeight = FontWeight.Black,
                             modifier = Modifier.offset(y = (-4).dp),
-                            letterSpacing = if (isLeader && (bottomText == "POLEMAN" || bottomText == "WINNER")) 1.sp else 0.sp
+                            letterSpacing = if (isLeader && (bottomText == "POLEMAN" || bottomText == "FASTEST" || bottomText == "WINNER")) 1.sp else 0.sp
                         )
                     }
                 }
@@ -397,7 +496,7 @@ fun ShimmerResultRow() {
 }
 
 @Composable
-fun ResultRow(result: RaceResultResponse, displayPosition: Int, isQuali: Boolean, leaderTimeMs: Long, onDriverClick: (String) -> Unit) {
+fun ResultRow(result: RaceResultResponse, displayPosition: Int, isQuali: Boolean, isPractice: Boolean, leaderTimeMs: Long, onDriverClick: (String) -> Unit) {
     val isDnf = isDnfOrDns(result.time)
     val isDns = isDnf && (result.time.lowercase().contains("dns") || result.time.lowercase().contains("withdrawn"))
     val isDsq = isDnf && (result.time.lowercase().contains("dsq") || result.time.lowercase().contains("disqualified"))
@@ -407,16 +506,16 @@ fun ResultRow(result: RaceResultResponse, displayPosition: Int, isQuali: Boolean
     val pointsOrStatusText = if (isDnf) {
         if (isDsq) "DSQ" else if (isDns) "DNS" else "DNF"
     } else {
-        if (isQuali) {
+        if (isQuali || isPractice) {
             val dTimeMs = parseF1Time(result.time)
             if (dTimeMs > 0 && leaderTimeMs > 0) formatGap(dTimeMs, leaderTimeMs) else result.time
         } else {
             "${result.points} PTS"
         }
     }
-    val pointsColor = if (isDnf) Color(0xFFFF0033) else if (isQuali) Color.White else Color(0xFF00FFCC)
+    val pointsColor = if (isDnf) Color(0xFFFF0033) else if (isQuali || isPractice) Color.White else Color(0xFF00FFCC)
 
-    Surface(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp).clickable { onDriverClick(result.driver) }, shape = RoundedCornerShape(12.dp), color = Color.White.copy(alpha = 0.03f)) {
+    Surface(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp).clickable(enabled = !result.is_session_only) { onDriverClick(result.driver) }, shape = RoundedCornerShape(12.dp), color = Color.White.copy(alpha = 0.03f)) {
         Row(modifier = Modifier.fillMaxWidth().height(54.dp).padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(text = positionText, color = statusColor, fontSize = 14.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(32.dp), lineHeight = 16.sp)
             Column(modifier = Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.Center) {
@@ -426,7 +525,7 @@ fun ResultRow(result: RaceResultResponse, displayPosition: Int, isQuali: Boolean
             Column(horizontalAlignment = Alignment.End, modifier = Modifier.width(85.dp), verticalArrangement = Arrangement.Center) {
                 Text(text = pointsOrStatusText, color = pointsColor, fontSize = if (isDnf) 16.sp else 14.sp, fontWeight = FontWeight.Black, lineHeight = 16.sp)
                 if (!isDnf) {
-                    val bottomText = if (isQuali) result.time else (if (displayPosition == 1) "WINNER" else result.time)
+                    val bottomText = if (isQuali || isPractice) result.time else (if (displayPosition == 1) "WINNER" else result.time)
                     Text(text = bottomText, color = Color.White.copy(alpha = 0.4f), fontSize = 10.sp, fontWeight = FontWeight.Bold, lineHeight = 12.sp, maxLines = 1)
                 }
             }

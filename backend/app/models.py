@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, Date, ForeignKey, Boolean, DateTime
+from sqlalchemy import Column, Integer, String, Float, Date, ForeignKey, Boolean, DateTime, UniqueConstraint
 from sqlalchemy.orm import Mapped, relationship
 from typing import Optional
 from datetime import datetime, timezone
@@ -28,6 +28,25 @@ class Driver(Base):
     team_id = Column(Integer, ForeignKey("teams.id"))
     team = relationship("Team", back_populates="drivers")
     race_results = relationship("RaceResult", back_populates="driver")
+
+class SessionParticipant(Base):
+    """Driver who only appears in a practice session, not in the race roster."""
+
+    __tablename__ = "session_participants"
+    __table_args__ = (
+        UniqueConstraint(
+            "first_name",
+            "last_name",
+            name="uq_session_participants_name",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True)
+    first_name = Column(String, nullable=False)
+    last_name = Column(String, nullable=False)
+    nationality = Column(String, nullable=True)
+
+    race_results = relationship("RaceResult", back_populates="session_participant")
 
 class Race(Base):
     __tablename__ = "races"
@@ -98,6 +117,7 @@ class RoundProcessingLog(Base):
 
 class RaceResult(Base):
     __tablename__ = "race_results"
+
     id = Column(Integer, primary_key=True, index=True)
     position = Column(Integer, nullable=False)
     points = Column(Float, nullable=False)
@@ -106,10 +126,21 @@ class RaceResult(Base):
     q2 = Column(String, nullable=True)
     q3 = Column(String, nullable=True)
     session_type = Column(String, default="race", index=True)
+    team_name = Column(String, nullable=True)
     race_id = Column(Integer, ForeignKey("races.id"))
     driver_id = Column(Integer, ForeignKey("drivers.id"))
+    session_participant_id = Column(
+        Integer,
+        ForeignKey("session_participants.id"),
+        nullable=True,
+    )
+
     race = relationship("Race", back_populates="results")
     driver = relationship("Driver", back_populates="race_results")
+    session_participant = relationship(
+        "SessionParticipant",
+        back_populates="race_results",
+    )
 
 class TechnicalUpdate(Base):
     __tablename__ = "technical_updates"

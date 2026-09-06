@@ -217,6 +217,7 @@ class RaceResultResponseSchema(BaseModel):
     q1: Optional[str] = None
     q2: Optional[str] = None
     q3: Optional[str] = None
+    is_session_only: bool = False
 
 
 class NewsArticleResponseSchema(BaseModel):

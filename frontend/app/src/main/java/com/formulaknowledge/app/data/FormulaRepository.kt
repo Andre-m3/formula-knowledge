@@ -7,6 +7,8 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.firstOrNull
 import com.formulaknowledge.app.utils.F1Utils
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 
 class FormulaRepository(private val database: FormulaDatabase) {
 
@@ -30,6 +32,9 @@ class FormulaRepository(private val database: FormulaDatabase) {
         private var lastCurrentRaceWeekFetch = 0L
         private val fetchedCircuitDetails = mutableMapOf<Int, Long>()
         private val fetchedRaceResults = mutableMapOf<String, Long>()
+        private val standardResultSessionTypes = listOf("fp1", "fp2", "fp3", "quali", "race")
+        private val sprintResultSessionTypes = listOf("sprint_shootout", "sprint")
+        private const val EMPTY_RESULT_RETRY_INTERVAL = 2 * 60 * 1000L
         private val fetchedDriverStats = mutableMapOf<String, Long>()
         private val fetchedDriverSeasonStats = mutableMapOf<String, Long>()
         private val fetchedConstructorStats = mutableMapOf<String, Long>()
@@ -135,24 +140,90 @@ class FormulaRepository(private val database: FormulaDatabase) {
     }
 
     suspend fun refreshRaceResults(round: Int, sessionType: String) {
-        val now = System.currentTimeMillis()
         val cacheKey = "${round}_$sessionType"
-        val lastFetch = fetchedRaceResults[cacheKey] ?: 0L
         val localData = raceDao.getRaceResults(round, sessionType).firstOrNull()
-        
-        if (!localData.isNullOrEmpty() && (now - lastFetch < CACHE_EXPIRY)) {
+
+        // Session results already stored in Room are final data. Keep them for
+        // offline use and never replace them with an empty provider response.
+        if (!localData.isNullOrEmpty()) {
             return
         }
+
+        val now = System.currentTimeMillis()
+        val lastEmptyFetch = fetchedRaceResults[cacheKey] ?: 0L
+        if (now - lastEmptyFetch < EMPTY_RESULT_RETRY_INTERVAL) {
+            return
+        }
+
         try {
             val apiData = RetrofitClient.apiService.getSessionResults(round, sessionType)
-            val entities = apiData.map { RaceResultEntity(0, round, sessionType, it.position, it.driver, it.team, it.points, it.time, it.q1, it.q2, it.q3) }
+            if (apiData.isEmpty()) {
+                // A current session may not have final results yet. Do not write
+                // an empty list and only defer another network attempt briefly.
+                fetchedRaceResults[cacheKey] = now
+                return
+            }
+
+            val entities = apiData.map {
+                RaceResultEntity(
+                    0,
+                    round,
+                    sessionType,
+                    it.position,
+                    it.driver,
+                    it.team,
+                    it.points,
+                    it.time,
+                    it.q1,
+                    it.q2,
+                    it.q3,
+                    it.is_session_only,
+                )
+            }
             raceDao.updateRaceResults(round, sessionType, entities)
-            fetchedRaceResults[cacheKey] = System.currentTimeMillis()
+            fetchedRaceResults.remove(cacheKey)
         } catch (e: Exception) {
             Log.e("FormulaRepository", "refreshRaceResults for round $round, session $sessionType failed", e)
         }
     }
 
+    /**
+     * Fills Room after the Home screen is ready. Historical sessions are
+     * immutable once saved; the current GP is also tried so results appear as
+     * soon as the provider has published them. Future rounds stay on demand.
+     */
+    suspend fun prefetchCompletedSessionResults() {
+        val targetRaces = generalDao.getCalendar().firstOrNull()
+            .orEmpty()
+            .filter { !it.cancelled && (it.status == "past" || it.status == "current") }
+        val networkSlots = Semaphore(3)
+
+        coroutineScope {
+            targetRaces.forEach { race ->
+                launch {
+                    var circuitDetail = raceDao.getCircuitDetail(race.round).firstOrNull()
+                    if (circuitDetail == null) {
+                        networkSlots.withPermit {
+                            refreshCircuitDetail(race.round)
+                        }
+                        circuitDetail = raceDao.getCircuitDetail(race.round).firstOrNull()
+                    }
+
+                    val sessionTypes = if (circuitDetail?.is_sprint == true) {
+                        standardResultSessionTypes + sprintResultSessionTypes
+                    } else {
+                        standardResultSessionTypes
+                    }
+
+                    sessionTypes.forEach { sessionType ->
+                        networkSlots.withPermit {
+                            refreshRaceResults(race.round, sessionType)
+                        }
+                    }
+                }
+            }
+        }
+    }
     val calendar: Flow<List<CalendarEntity>> = generalDao.getCalendar()
     val currentRaceWeek: Flow<RaceWeekEntity?> = generalDao.getCurrentRaceWeek()
     val newsArticles: Flow<List<NewsArticleEntity>> = generalDao.getNewsArticles()
@@ -173,27 +244,6 @@ class FormulaRepository(private val database: FormulaDatabase) {
             }
             generalDao.updateCalendar(entities)
 
-            // Pre-fetch silente dei dati essenziali: gare passate e prossimo GP.
-            // I round futuri restano on-demand per evitare richieste inutili al primo avvio.
-            coroutineScope {
-                entities
-                    .filter { !it.cancelled && (it.status == "past" || it.status == "current") }
-                    .forEach { race ->
-                    launch {
-                        // Pre-carica i dettagli del circuito se mancano
-                        val existingCircuit = raceDao.getCircuitDetail(race.round).firstOrNull()
-                        if (existingCircuit == null) {
-                            refreshCircuitDetail(race.round)
-                        }
-
-                        // Pre-carica i risultati della gara se mancano
-                        val existingResults = raceDao.getRaceResults(race.round, "race").firstOrNull()
-                        if (existingResults.isNullOrEmpty()) {
-                            refreshRaceResults(race.round, "race")
-                        }
-                    }
-                }
-            }
             lastCalendarFetch = System.currentTimeMillis()
         } catch (e: Exception) {
             Log.e("FormulaRepository", "refreshCalendar failed", e)

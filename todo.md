@@ -19,7 +19,7 @@ Questo documento raccoglie le decisioni architetturali e le attività consigliat
 - `rss_scraper.py` importa news da feed RSS e mantiene gli articoli più recenti.
 - Gli script di seed inizializzano anagrafiche, gare e statistiche storiche/stagionali.
 - `update_post_race.py` applica i risultati di un round tramite delta e `RoundProcessingLog`, così lo stesso round può essere ricalcolato dopo penalità o modifiche ufficiali.
-- `sync_database.py` esegue il ricalcolo completo delle statistiche, pulisce le cache e aggiorna le news.
+- `sync_session_results.py` riconcilia in modo idempotente la tabella canonica `RaceResult`; `sync_database.py` lo esegue prima del ricalcolo statistiche, del reset cache e delle news.
 
 ### Frontend
 
@@ -32,7 +32,7 @@ Questo documento raccoglie le decisioni architetturali e le attività consigliat
 - Room conserva classifiche, calendario, race week, risultati, news e statistiche di piloti/costruttori.
 - I dati vengono esposti alla UI tramite `Flow`.
 - Il caricamento iniziale attende il refresh di race week e calendario prima di mostrare la Home, evitando il lampo di una race week Room obsoleta.
-- `refreshCalendar()` aggiorna il calendario completo e precarica dettagli circuito e risultati gara per round passati e round corrente; i round futuri restano on-demand.
+- `refreshCalendar()` aggiorna il calendario completo; dopo che la Home è pronta, `prefetchCompletedSessionResults()` completa in background dettagli circuito e tutte le sessioni dei round passati/correnti, mentre i round futuri restano on-demand.
 - Il backup Android esclude il database Room/cache, DataStore e SharedPreferences per evitare il ripristino di dati vecchi sopra una nuova installazione.
 - Identity gestita da Firebase; la UI corrente espone solo Google Sign-In, mentre email/password resta predisposto ma disabilitato dal flag `EMAIL_PASSWORD_AUTH_ENABLED`.
 - FirebaseAuth gestisce la sessione; DataStore conserva soltanto lo stato di completamento onboarding.
@@ -162,6 +162,28 @@ La soluzione attuale funziona, ma la conservazione dello stato è parziale:
 - il back stack e il ripristino dopo ricreazione/process death sono gestiti solo in parte.
 
 La migrazione non è urgente per correggere l’app attuale, ma è consigliata prima di aggiungere notifiche, deep link, widget e molte nuove schermate.
+### Strategia sorgenti dati — Jolpica e F1DB
+
+~~~mermaid
+flowchart LR
+    J[Jolpica / Ergast stabile] --> J1[Calendario, orari, classifiche e risultati Race / Quali / Sprint]
+    JA[Jolpica Alpha] --> JA1[Risultati finali FP1 / FP2 / FP3 / Sprint Qualifying]
+    F[F1DB — release CC BY 4.0] --> F1[Backfill e verifica post-sessione: FP, risultati e dati storici ricchi]
+    J1 --> DB[(Database Formula Knowledge)]
+    JA1 --> DB
+    F1 --> DB
+    DB --> A[API FastAPI e cache Room]
+~~~
+
+| Fonte | Uso raccomandato | Stato |
+|---|---|---|
+| Jolpica Ergast-compatible | Calendario, orari sessioni, classifiche, risultati gara/qualifiche/sprint e flussi già integrati | Fonte primaria attuale |
+| Jolpica Alpha | Risultati finali FP1, FP2, FP3 e Sprint Qualifying tramite endpoint dinamico per round/sessione | Da usare ora, monitorando il contratto Alpha nei weekend Sprint |
+| F1DB | Import post-sessione/versionato, backfill, verifica dati e copertura storica ricca incluse prove libere | Non implementare ora |
+
+Decisione: non sostituire Jolpica con F1DB e non sostituire il database interno con il database F1DB. F1DB dovrà essere importato nel modello dati canonico solo se offrirà un vantaggio concreto rispetto a Jolpica Alpha.
+
+Condizione per valutare l’importer F1DB: verificare Jolpica Alpha per almeno tre weekend, includendo un weekend Sprint. Se i risultati FP arrivano completi e con tempi accettabili, F1DB resterà una fonte opzionale di backfill; se mancano risultati, campi o affidabilità, si progetterà un importer idempotente F1DB con attribuzione CC BY 4.0.
 
 ## Roadmap operativa dettagliata
 
@@ -338,7 +360,7 @@ Per penalità tardive, dati incoerenti o riallineamento completo:
 python -m scripts.sync_database
 ```
 
-Questo ricalcola statistiche stagionali e di carriera, corregge i mondiali, svuota la cache delle classifiche e aggiorna le news. È più lento del singolo round e richiede accesso alle API esterne.
+Questo riconcilia prima i risultati canonici delle sessioni, poi ricalcola statistiche stagionali e di carriera, corregge i mondiali, svuota la cache delle classifiche e aggiorna le news. È più lento del singolo round e richiede accesso alle API esterne.
 
 ### Reset completo iniziale
 
@@ -556,6 +578,7 @@ formula-knowledge/
 │   │   ├── seed_constructor_stats.py
 │   │   ├── seed_season_stats.py
 │   │   ├── sync_database.py
+│   │   ├── sync_session_results.py
 │   │   ├── update_champs.py
 │   │   └── update_post_race.py
 │   ├── tests/
@@ -681,3 +704,45 @@ formula-knowledge/
 - Registrato che la chiave distribuita nell’APK non è un segreto forte e non sarà considerata una protezione definitiva in produzione.
 - Pianificata una fase dedicata prima del deployment pubblico: valutazione della rimozione dalle route guest, HTTPS, rate limiting, CORS, logging sicuro, monitoraggio e staging con rollback.
 - Nessuna modifica applicativa o di schema eseguita in questo passaggio.
+## 2026-09-05 — Risultati Prove Libere tramite Jolpica Alpha
+
+- Decisione operativa: Jolpica Alpha è utilizzabile subito per tutte le FP con risultati già pubblicati, senza una soglia arbitraria di tre weekend. La disponibilità va monitorata a ogni weekend; F1DB sarà valutato solo se emergono lacune concrete o indisponibilità prolungate.
+
+- Verificato il contratto alpha su Monza 2026: FP1 e FP2 hanno restituito HTTP 200 con 22 risultati completi; FP3 durante lo svolgimento ha restituito HTTP 200 con lista vuota, comportamento gestito senza cache negativa.
+- ExternalApiService usa Jolpica Alpha esclusivamente per fp1, fp2 e fp3; recupera dinamicamente l’URL dei risultati dalla schedule stagionale, senza hardcodare gli ID opachi dei round.
+- Le risposte FP non vuote vengono salvate nella cache esistente; una risposta vuota non viene memorizzata, così l’app può ritentare appena il provider pubblica la classifica finale.
+- Mantenuti invariati database, migration Alembic, endpoint pubblico dei risultati, Retrofit e flussi Race/Quali/Sprint esistenti.
+- Le card FP concluse aprono ora RaceResultsScreen; rimossi il popup che dichiarava le prove libere non disponibili e la visualizzazione errata di 0 PTS.
+- La schermata risultati FP usa tempi e gap, identifica il più veloce con FASTEST e mostra uno stato esplicito se il provider non ha ancora pubblicato risultati.
+- Aggiunti tre test isolati: mapping URL alpha e dati FP, assenza di cache per lista FP vuota, persistenza/cache della route con SQLite in memoria.
+- Verifiche completate: 3/3 test FP, suite sandbox esistente 6/6, compilazione Python dei moduli coinvolti e compilazione Kotlin offline riuscita.
+- Risolto il trust TLS Python su Windows: truststore usa CryptoAPI prima di requests, il test reale Alpha restituisce 200 e non e stato introdotto verify=False.
+## 2026-09-05 — Tester FP, team snapshot e trust TLS
+
+- Aggiunta e applicata la migration Alembic b84c1e8d4a72: crea session_participants e aggiunge a race_results session_participant_id e team_name. Il database runtime è a head; Alembic check non rileva upgrade pendenti.
+- Inseriti nove partecipanti solo sessione: Jak Crawford, Leonardo Fornaroli, Paul Aron, Dino Beganovic, Ayumu Iwasa, Frederik Vesti, Colton Herta, Luke Browning e Ryo Hirakawa. Il seed li ricrea senza inserirli nel roster drivers o nelle statistiche.
+- RaceResult conserva la scuderia fornita da Alpha per quella sessione; risolto il caso di Iwasa e Aron, presenti con team diversi in round differenti.
+- Il payload risultati espone is_session_only. Anche la prima risposta dopo un cache miss viene riletta dalla cache appena persistita, quindi include subito il flag e la scuderia snapshot; Room 20→21 conserva la cache con migration SQL; RaceResultsScreen mantiene visibili i tester ma disabilita il click verso statistiche/profilo.
+- Aggiunto truststore 0.10.4 alle dipendenze backend e inizializzato prima di requests. La verifica HTTPS rimane attiva e il test Python reale verso Jolpica Alpha restituisce HTTP 200.
+- Creato backup timestampato prima della migration. Eseguito backfill forzato FP fino al round 13: 29 sessioni e 634 righe salvate, 23 presenze tester complete, nessuna sessione non valida. Dieci sessioni senza risultati sono FP2/FP3 non previste nei weekend Sprint.
+- Verifiche completate: compilazione Python, 7/7 test isolati cache/backfill (inclusa la prima risposta tester), compilazione Kotlin offline, Alembic current/check, import FastAPI e controllo diretto della risposta Barcelona FP1.
+## 2026-09-06 — Sprint Qualifying, cache risultati e navigazione Quali
+
+- Risolta la causa delle Sprint Qualifying vuote: la route rispondeva `200` ma `ExternalApiService` restituiva intenzionalmente una lista vuota per `sprint_shootout`. Jolpica Alpha ora viene risolta dalla schedule con codice `SQ` e mappa i componenti `SQ1`, `SQ2` e `SQ3` nei campi già usati dalla UI.
+- Verificato il provider reale: round 2 ha restituito 21 risultati; la scrittura controllata ha popolato 21 righe `sprint_shootout` nel database backend con tempi SQ1/SQ2/SQ3.
+- Il prefetch parte dopo race week e calendario, senza bloccare la splash. Considera i round `past` e `current`, tutte le sessioni previste, mantiene al massimo tre richieste concorrenti e lascia i round futuri on-demand.
+- Risultati finali già presenti in Room sono considerati immutabili: non generano una nuova richiesta e non possono essere cancellati da una risposta API vuota. Per una sessione corrente ancora non pubblicata, il retry è limitato a due minuti.
+- In RaceResultsScreen Quali e Sprint Quali mantengono i tab e supportano anche swipe orizzontale: sinistra verso la fase successiva, destra verso quella precedente. Header e tab restano fissi; solo la classifica usa la transizione direzionale con fade di Standings. Lo stato iniziale è Q3/SQ3 e viene correttamente reinizializzato cambiando tipo sessione.
+- Nessuna migration Room o Alembic richiesta. Verifiche completate: compilazione Python, suite backend 8/8, risposta Alpha SQ reale, persistenza SQ DB e compilazione Android offline (`BUILD SUCCESSFUL`).
+- Test manuale da eseguire su dispositivo: riavviare Uvicorn, avviare l'app con rete disponibile e verificare che una Sprint Quali storica mostri dati e swipe; dopo il prefetch, riaprire una FP/Quali/Race già caricata e confermare assenza di nuova richiesta risultati nel log Uvicorn.
+## 2026-09-06 — Risultati canonici e sincronizzazione post-sessione
+
+- Aggiunto `backend/scripts/sync_session_results.py`: in anteprima per default, confronta tutte le sessioni previste dei round conclusi e del weekend corrente con `RaceResult`. Il weekend corrente è determinato da `CalendarService`, così le sessioni di venerdì/sabato vengono incluse anche prima della gara di domenica. Lo script valida l'intero payload e in `--apply` sostituisce in una transazione solo le coppie round/sessione differenti. Race, Quali, Sprint, Sprint Qualifying e FP sono quindi dati canonici del database backend; il recupero lazy dell'API rimane soltanto un fallback.
+- Integrato lo script come primo passaggio di `scripts.sync_database`. Dopo un GP, il comando ordinario da usare è quindi `python -m scripts.sync_database`; il comando separato serve per anteprima o riconciliazione mirata con `--round <ROUND>`.
+- Introdotti User-Agent identificativo, intervallo minimo di 1,1 secondi e retry esponenziale sui `429` Jolpica. Un rate limit è conteggiato separatamente dai risultati non disponibili e non può causare cancellazioni. Il primo apply ha incontrato un 429 dopo 50 sessioni; le restanti sono state riprese con il nuovo limite senza perdita dati.
+- Corretto il replace ORM di RaceResult: delete ORM e flush esplicito evitano il riuso ambiguo di primary key SQLite e i warning SQLAlchemy del bulk delete. Test di regressione dedicato incluso.
+- Sincronizzazione reale fino al round 13 completata in due run controllati: 64 sessioni e 1.398 righe aggiornate. Restano non disponibili FP2/FP3 nei weekend Sprint in cui non esistono e la Race del round 13, non ancora pubblicata; nessun payload non valido.
+- Audit Room: i risultati finali già in cache fanno return prima della chiamata Retrofit; le risposte vuote fanno return prima di `updateRaceResults`; il clear/insert è `@Transaction` ed è raggiungibile solo con una lista non vuota. Nessuna migration Room o Alembic richiesta. Database backend: 0 duplicati per round/sessione/pilota o partecipante.
+- Verifiche completate: compilazione Python, suite backend 12/12 (idempotenza, variazione post-sessione, risposta vuota, rate limit, replace ORM e selezione del weekend corrente prima della domenica), query integrità SQLite e compilazione Android offline riuscita.
+- Corretto il 404 `season_stats` di Tsunoda: `seed_season_stats` inizializza a zero una riga stagionale per ogni `DRIVER_IDS` gestito prima di leggere i risultati. Applicato il fix al database runtime: `/api/v1/drivers/tsunoda/season_stats` restituisce 200, `total_races=0`, `best_race_result=N/A`; il test SQLite in memoria conferma che il helper è idempotente.
+- Audit cache al riavvio: le scadenze generali di 30 minuti sono mappe in memoria, quindi una chiusura completa azzera i timestamp e rinnova richieste online. Non è una perdita Room: i `Flow` mantengono i dati locali/offline e i risultati finali delle sessioni non richiamano il backend. Da valutare separatamente il passaggio a timestamp persistenti per risorsa e stale-while-revalidate.

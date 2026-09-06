@@ -2,6 +2,8 @@ package com.formulaknowledge.app.data
 
 import android.content.Context
 import androidx.room.*
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
 
 // --- 1. ENTITIES (Tabelle del DB) ---
@@ -65,7 +67,8 @@ data class RaceResultEntity(
     val time: String,
     val q1: String? = null,
     val q2: String? = null,
-    val q3: String? = null
+    val q3: String? = null,
+    val is_session_only: Boolean = false
 )
 
 @Entity(tableName = "calendar_entries")
@@ -366,7 +369,7 @@ interface ConstructorSeasonStatsDao {
 
 @Database(
     entities = [DriverStandingEntity::class, ConstructorStandingEntity::class, CircuitDetailEntity::class, RaceResultEntity::class, CalendarEntity::class, RaceWeekEntity::class, DriverStatsEntity::class, ConstructorStatsEntity::class, DriverSeasonStatsEntity::class, ConstructorSeasonStatsEntity::class, NewsArticleEntity::class],
-    version = 20,
+    version = 21,
     exportSchema = false
 )
 abstract class FormulaDatabase : RoomDatabase() {
@@ -379,6 +382,13 @@ abstract class FormulaDatabase : RoomDatabase() {
     abstract fun constructorSeasonStatsDao(): ConstructorSeasonStatsDao
 
     companion object {
+        private val MIGRATION_20_21 = object : Migration(20, 21) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    "ALTER TABLE race_results ADD COLUMN is_session_only INTEGER NOT NULL DEFAULT 0"
+                )
+            }
+        }
         @Volatile
         private var INSTANCE: FormulaDatabase? = null
 
@@ -389,6 +399,7 @@ abstract class FormulaDatabase : RoomDatabase() {
                     FormulaDatabase::class.java,
                     "formula_knowledge_db"
                 )
+                .addMigrations(MIGRATION_20_21)
                 .fallbackToDestructiveMigration()
                 .build()
                 INSTANCE = instance

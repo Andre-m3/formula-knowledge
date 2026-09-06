@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session
 from app.database import SessionLocal, engine
-from app.models import Team, Driver, Race, RaceResult, Base
+from app.models import Base, Driver, Race, RaceResult, SessionParticipant, Team
 from app.core.config import settings
 from app.services.calendar_service import CalendarService
 from app.services.external_api_service import ExternalApiService
@@ -57,6 +57,17 @@ DRIVERS_DATA = [
     {"first_name": "Valtteri", "last_name": "Bottas", "number": 77, "nationality": "Finnish", "team_name": "Cadillac F1 Team"},
 ]
 
+SESSION_PARTICIPANTS_DATA = [
+    {"first_name": "Jak", "last_name": "Crawford", "nationality": "American"},
+    {"first_name": "Leonardo", "last_name": "Fornaroli", "nationality": "Italian"},
+    {"first_name": "Paul", "last_name": "Aron", "nationality": "Estonian"},
+    {"first_name": "Dino", "last_name": "Beganovic", "nationality": "Swedish"},
+    {"first_name": "Ayumu", "last_name": "Iwasa", "nationality": "Japanese"},
+    {"first_name": "Frederik", "last_name": "Vesti", "nationality": "Danish"},
+    {"first_name": "Colton", "last_name": "Herta", "nationality": "American"},
+    {"first_name": "Luke", "last_name": "Browning", "nationality": "British"},
+    {"first_name": "Ryo", "last_name": "Hirakawa", "nationality": "Japanese"},
+]
 HISTORICAL_DATA = {
     "Albert Park Grand Prix Circuit": {
         "laps": 58,
@@ -416,6 +427,9 @@ def seed_database():
             driver = Driver(**driver_fields, team_id=team_map[team_name])
             db.add(driver)
 
+        print("Popolamento tabella Session Participants...")
+        for participant_data in SESSION_PARTICIPANTS_DATA:
+            db.add(SessionParticipant(**participant_data))
         print("Popolamento tabella Races...")
         # TODO: In futuro, quando passeremo a PostgreSQL, inseriremo l'intero calendario
         # in modo hardcodato (comprese le date di FP1, FP2, ecc.) per rimuovere la dipendenza da Jolpica.

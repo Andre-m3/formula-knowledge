@@ -3,9 +3,22 @@ import time
 from datetime import datetime
 from ..core.config import settings
 
+class ExternalApiRateLimitError(RuntimeError):
+    """Raised internally when Jolpica throttles a provider request."""
+
 class ExternalApiService:
     _cache = {}
     CACHE_TTL = 3600  # 1 ora di cache per i dati storici/classifiche
+    REQUEST_HEADERS = {
+        "User-Agent": "FormulaKnowledge/0.1 (private educational Android application)",
+    }
+
+    @classmethod
+    def _request(cls, url: str):
+        response = requests.get(url, timeout=5, headers=cls.REQUEST_HEADERS)
+        if getattr(response, "status_code", None) == 429:
+            raise ExternalApiRateLimitError(f"Jolpica rate limit reached for {url}")
+        return response
 
     @classmethod
     def _get_cached(cls, key):
@@ -34,7 +47,7 @@ class ExternalApiService:
         
         url = f"https://api.jolpi.ca/ergast/f1/{year}/races.json?limit=100"
         try:
-            response = requests.get(url, timeout=5)
+            response = cls._request(url)
             response.raise_for_status()
             races = response.json().get("MRData", {}).get("RaceTable", {}).get("Races", [])
             
@@ -67,7 +80,7 @@ class ExternalApiService:
         
         url = f"https://api.jolpi.ca/ergast/f1/{year}/races.json?limit=100"
         try:
-            response = requests.get(url, timeout=5)
+            response = cls._request(url)
             response.raise_for_status()
             data = response.json()
             races = data.get("MRData", {}).get("RaceTable", {}).get("Races", [])
@@ -110,7 +123,7 @@ class ExternalApiService:
         # Utilizziamo Jolpica-F1, il successore moderno e open-source di Ergast
         url = f"https://api.jolpi.ca/ergast/f1/{year}/driverStandings.json"
         try:
-            response = requests.get(url, timeout=5)
+            response = cls._request(url)
             response.raise_for_status()
             data = response.json()
 
@@ -150,7 +163,7 @@ class ExternalApiService:
 
         url = f"https://api.jolpi.ca/ergast/f1/{year}/constructorStandings.json"
         try:
-            response = requests.get(url, timeout=5)
+            response = cls._request(url)
             response.raise_for_status()
             data = response.json()
 
@@ -176,11 +189,131 @@ class ExternalApiService:
             return []
 
     @classmethod
-    def get_session_results(cls, round_number: int, session_type: str, year: int = settings.F1_SEASON):
+    def _get_alpha_timing_results(
+        cls,
+        round_number: int,
+        session_type: str,
+        year: int,
+    ):
+        """Return FP or Sprint Qualifying results from Jolpica Alpha.
+
+        Alpha identifies rounds through opaque IDs, so the seasonal schedule is
+        the source of truth for each session result URL. This also keeps the
+        implementation resilient to provider-side round ID changes.
+        """
+        schedule_cache_key = f"alpha_schedule_{year}"
+        schedule_data = cls._get_cached(schedule_cache_key)
+
+        try:
+            if not schedule_data:
+                schedule_response = cls._request(
+                    f"https://api.jolpi.ca/f1/alpha/schedules/{year}/"
+                )
+                schedule_response.raise_for_status()
+                schedule_data = schedule_response.json()
+                cls._set_cache(schedule_cache_key, schedule_data)
+
+            events = schedule_data.get("data", {}).get("events", [])
+            event = next(
+                (
+                    item
+                    for item in events
+                    if item.get("round", {}).get("number") == round_number
+                ),
+                None,
+            )
+            if not event:
+                return []
+
+            session_code = {"sprint_shootout": "SQ"}.get(
+                session_type,
+                session_type.upper(),
+            )
+            schedule_entry = next(
+                (
+                    item
+                    for item in event.get("schedule", [])
+                    if item.get("code") == session_code
+                ),
+                None,
+            )
+            results_url = schedule_entry.get("results_url") if schedule_entry else None
+            if not results_url:
+                return []
+
+            response = cls._request(results_url)
+            response.raise_for_status()
+            raw_results = response.json().get("data", {}).get("results", [])
+
+            results = []
+            for item in raw_results:
+                driver = item.get("driver", {})
+                team = item.get("team", {})
+                position = item.get("position")
+
+                if not isinstance(position, int) or not driver:
+                    continue
+
+                driver_name = " ".join(
+                    filter(
+                        None,
+                        [driver.get("given_name"), driver.get("family_name")],
+                    )
+                )
+                if driver_name == "Andrea Kimi Antonelli":
+                    driver_name = "Kimi Antonelli"
+
+                components = item.get("components", {})
+                if not isinstance(components, dict):
+                    components = {}
+
+                def component_time(code: str):
+                    component = components.get(code, {})
+                    return component.get("time") if isinstance(component, dict) else None
+
+                is_sprint_shootout = session_type == "sprint_shootout"
+                results.append(
+                    {
+                        "position": position,
+                        "driver": driver_name,
+                        "team": team.get("name", ""),
+                        "points": 0,
+                        "time": item.get("time") or item.get("position_text") or "",
+                        "q1": component_time("SQ1") if is_sprint_shootout else None,
+                        "q2": component_time("SQ2") if is_sprint_shootout else None,
+                        "q3": component_time("SQ3") if is_sprint_shootout else None,
+                    }
+                )
+
+            # Never cache an empty result set: Alpha can publish it shortly
+            # after a session ends, and callers must be able to retry.
+            if results:
+                cls._set_cache(
+                    f"session_results_{year}_{round_number}_{session_type}",
+                    results,
+                )
+            return results
+        except ExternalApiRateLimitError:
+            raise
+        except Exception as e:
+            print(f"Errore API Alpha risultati {session_type}: {e}")
+            return []
+    @classmethod
+    def get_session_results(
+        cls,
+        round_number: int,
+        session_type: str,
+        year: int = settings.F1_SEASON,
+        *,
+        force_refresh: bool = False,
+    ):
         cache_key = f"session_results_{year}_{round_number}_{session_type}"
-        cached = cls._get_cached(cache_key)
+        cached = None if force_refresh else cls._get_cached(cache_key)
         if cached:
             return cached
+
+        if session_type in {"fp1", "fp2", "fp3", "sprint_shootout"}:
+            return cls._get_alpha_timing_results(round_number, session_type, year)
 
         if session_type == "race":
             url = f"https://api.jolpi.ca/ergast/f1/{year}/{round_number}/results.json"
@@ -192,11 +325,10 @@ class ExternalApiService:
             url = f"https://api.jolpi.ca/ergast/f1/{year}/{round_number}/qualifying.json"
             result_key = "QualifyingResults"
         else:
-            # sprint_shootout non e' sempre supportato in tutte le stagioni, gestiamo il placeholder
             return []
 
         try:
-            response = requests.get(url, timeout=5)
+            response = cls._request(url)
             response.raise_for_status()
             data = response.json()
 
@@ -225,17 +357,21 @@ class ExternalApiService:
                     q3 = item.get("Q3")
                     points = 0
 
-                results.append({ # type: ignore
+                results.append({
                     "position": int(item["position"]),
                     "driver": driver_name,
                     "team": item["Constructor"]["name"],
                     "points": points,
                     "time": time_str,
-                    "q1": q1, "q2": q2, "q3": q3
+                    "q1": q1,
+                    "q2": q2,
+                    "q3": q3,
                 })
 
             cls._set_cache(cache_key, results)
             return results
+        except ExternalApiRateLimitError:
+            raise
         except Exception as e:
             print(f"Errore API esterna risultati: {e}")
             return []

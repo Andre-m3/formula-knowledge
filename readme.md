@@ -46,6 +46,8 @@ formula-knowledge/
 │   │   ├── rss_scraper.py
 │   ├── scripts/
 │   │   ├── __init__.py
+│   │   ├── backfill_practice_results.py # Manutenzione mirata FP1/FP2/FP3
+│   │   ├── sync_session_results.py      # Riconcilia RaceResult da Jolpica
 │   │   ├── seed.py
 │   │   ├── seed_constructor_stats.py
 │   │   ├── seed_driver_stats.py
@@ -168,9 +170,17 @@ Jolpica è la fonte open-source principale per i dati sportivi F1. Il backend la
 - risultati gara;
 - risultati sprint;
 - qualifiche;
+- risultati finali di FP1, FP2, FP3 e Sprint Qualifying (SQ1/SQ2/SQ3) tramite il contratto Jolpica Alpha;
 - statistiche storiche dei piloti.
 
 Il calendario operativo non utilizza più una lista hardcoded locale quando Jolpica non è disponibile. In caso di risposta vuota viene restituito un errore controllato `503`, evitando di mostrare date potenzialmente obsolete.
+
+`RaceResult` è la fonte canonica dei risultati serviti all'app. `sync_database` esegue per primo una riconciliazione idempotente di Race, Quali, Sprint, Sprint Qualifying e FP dei round conclusi e del weekend corrente: il round corrente viene individuato da `CalendarService`, quindi le sessioni di venerdì e sabato sono incluse anche prima della gara di domenica. Lo script confronta la fonte con il database e sostituisce soltanto una sessione completa e differente. La route risultati conserva un recupero lazy esclusivamente come fallback se una sessione non è ancora presente. FP1, FP2, FP3 e Sprint Qualifying usano Alpha (codice `SQ` per lo Shootout e campi SQ1/SQ2/SQ3); Race, Quali e Sprint usano le route Ergast compatibili. Una risposta vuota, non valida o rate-limited non cancella mai dati esistenti.
+
+Jolpica Alpha è la fonte operativa corrente per FP e Sprint Qualifying; essendo un contratto Alpha, va monitorata durante i weekend. F1DB resta una possibile fonte di backfill storico, non un rimpiazzo pianificato delle API Jolpica.
+### Trust TLS su Windows
+
+Il backend carica truststore all’avvio prima di requests. In sviluppo Windows usa quindi CryptoAPI e il trust store di sistema, mantenendo la verifica TLS attiva anche in presenza di CA aziendali o antivirus attendibili nel sistema. truststore è una dipendenza backend pinata; non usare verify=False o bundle di certificati non verificati.
 
 ### Open-Meteo
 
@@ -210,7 +220,7 @@ Le route sono divise per dominio nei moduli sotto `backend/app/api/` e raccolte 
 |---|---|---|
 | GET | `/api/v1/raceweek/current` | Race week corrente o prossima, sessioni e meteo |
 | GET | `/api/v1/circuit/{round_number}` | Dettagli del circuito |
-| GET | `/api/v1/results/{round_number}/{session_type}` | Risultati gara, sprint o qualifiche |
+| GET | `/api/v1/results/{round_number}/{session_type}` | Risultati gara, sprint, qualifiche o prove libere (fp1, fp2, fp3) |
 | GET | `/api/v1/standings/drivers` | Classifica piloti |
 | GET | `/api/v1/standings/constructors` | Classifica costruttori |
 | GET | `/api/v1/calendar` | Calendario completo |
@@ -237,8 +247,9 @@ Le tabelle principali sono:
 
 - `teams`;
 - `drivers`;
+- `session_participants`;
 - `races`;
-- `race_results`;
+- race_results: cache di risultati con la scuderia fotografata nella singola sessione; una riga può riferirsi a un driver titolare oppure a un session_participant.
 - `technical_updates`;
 - `driver_standings_cache`;
 - `constructor_standings_cache`;
@@ -251,10 +262,11 @@ Le tabelle principali sono:
 - `users`.
 
 La vecchia cartella `backend/app/models/` è stata rimossa dopo la verifica degli import. Il codice operativo utilizza esclusivamente `backend/app/models.py` e `backend/app/database.py`.
+I tester che partecipano soltanto alle prove libere vivono in session_participants, non in drivers: non hanno numero, statistiche o profilo pilota. La risposta risultati li marca come is_session_only e la UI li mostra nella classifica senza renderli apribili come dettaglio pilota. La scuderia è letta dal risultato Alpha della sessione, quindi sono rappresentati correttamente anche quando lo stesso partecipante guida per team diversi in weekend diversi.
 
 ### Migrazioni dello schema
 
-La configurazione della connessione e letta da `app/core/config.py`. La revisione baseline `9f34e5026ddc` descrive lo schema SQLAlchemy canonico; il database runtime e attualmente registrato alla revisione `e71272d84bd5` tramite `alembic_version`.
+La configurazione della connessione e letta da `app/core/config.py`. La revisione baseline `9f34e5026ddc` descrive lo schema SQLAlchemy canonico; il database runtime e attualmente registrato alla revisione `b84c1e8d4a72` tramite `alembic_version`.
 
 Le migration modificano lo schema in modo versionato; non sostituiscono i seed dei dati. Prima di ogni modifica strutturale si esegue un backup e si revisiona manualmente il file generato con autogenerate.
 
@@ -262,6 +274,7 @@ Le migration modificano lo schema in modo versionato; non sostituiscono i seed d
 
 Il frontend usa Kotlin, Jetpack Compose, Material 3, Retrofit, OkHttp, Room, DataStore, Coil e Firebase.
 
+Room migra dalla versione 20 alla 21 aggiungendo il flag is_session_only alla cache risultati; la migrazione SQL aggiunge la colonna con default false e non cancella la cache esistente.
 FirebaseAuth gestisce la sessione utente. La UI espone attualmente solo Google Sign-In; il codice email/password resta predisposto ma disabilitato dal flag `EMAIL_PASSWORD_AUTH_ENABLED`. `TokenManager` conserva solo lo stato onboarding e rimuove la chiave token legacy, senza persistire nuovi ID token.
 
 ### Flusso dati
@@ -282,13 +295,15 @@ FastAPI/Jolpica/Open-Meteo/RSS
 
 Il repository aggiorna Room in background e la UI osserva i dati tramite `Flow`. L'app conserva quindi in locale race week, calendario, risultati, classifiche, news e statistiche già scaricate.
 
+Le soglie di refresh generali (30 minuti) sono al momento in memoria: nel medesimo processo evitano richieste duplicate, mentre a ogni riapertura completa vengono deliberatamente rieseguiti i refresh online per privilegiare la freschezza. Room resta il fallback offline e i risultati finali di sessione già presenti non vengono mai richiesti di nuovo. Un futuro refactor potrà rendere persistenti timestamp per risorsa e adottare stale-while-revalidate, senza cambiare il contratto dati.
+
 ### Offline-first
 
 Al primo utilizzo l'app necessita di connessione per scaricare i dati iniziali. Prima di mostrare la Home, l'avvio attende il refresh della race week e del calendario; classifiche, statistiche e news partono poi in background.
 
-Il refresh del calendario salva l'intera stagione in Room. Per ridurre le richieste ripetitive, precarica dettagli circuito e risultati gara dei round passati e del round corrente; i round futuri vengono caricati quando l'utente li apre.
+Il refresh del calendario salva l'intera stagione in Room. Appena la Home è pronta, un prefetch in background completa dettagli circuito e risultati di tutte le sessioni previste dei round passati e del round corrente; i round futuri restano on-demand. Il prefetch usa al massimo tre richieste simultanee e non prolunga la splash.
 
-Nei successivi accessi offline, Room può fornire i dati precedentemente scaricati. Gli errori di rete vengono generalmente registrati e i dati locali vengono mantenuti.
+Nei successivi accessi offline, Room può fornire i dati precedentemente scaricati. Una sessione con risultati già presenti in Room non richiama il backend e non viene mai sostituita da una risposta vuota; per una sessione corrente senza risultati il nuovo tentativo è limitato a uno ogni due minuti. Gli errori di rete vengono generalmente registrati e i dati locali vengono mantenuti.
 
 La race week è una condizione importante per visualizzare la Home. Se il refresh fallisce, un dato Room già presente può ancora essere usato offline; se non esiste alcuna cache, resta mostrata la splash fino alla disponibilità del dato essenziale.
 
@@ -347,13 +362,57 @@ python -m scripts.sync_database
 
 Il comando:
 
-1. ricalcola le statistiche stagionali;
-2. ricalcola le statistiche carriera dei piloti;
-3. corregge i mondiali;
-4. ricalcola le statistiche carriera dei costruttori;
-5. svuota la cache delle classifiche;
-6. aggiorna le news RSS.
+1. riconcilia i risultati canonici di tutte le sessioni disponibili;
+2. ricalcola le statistiche stagionali;
+3. ricalcola le statistiche carriera dei piloti;
+4. corregge i mondiali;
+5. ricalcola le statistiche carriera dei costruttori;
+6. svuota la cache delle classifiche;
+7. aggiorna le news RSS.
 
+### Sincronizzazione canonica dei risultati
+
+Dalla cartella `backend`, con il virtual environment attivo:
+
+~~~powershell
+# Anteprima completa: legge Jolpica, confronta ogni sessione e non scrive nulla.
+python -m scripts.sync_session_results
+
+# Scrittura delle sole sessioni complete e differenti.
+python -m scripts.sync_session_results --apply
+
+# Diagnosi o riconciliazione mirata di un weekend.
+python -m scripts.sync_session_results --apply --round <ROUND>
+~~~
+
+Lo script include il GP corrente per recuperare sessioni già concluse: usa il calendario, non la sola data della gara, per includere anche venerdì e sabato prima della domenica. Attende almeno 1,1 secondi tra richieste Jolpica, usa retry esponenziale per `429 Too Many Requests` e distingue un rate limit da una sessione realmente non disponibile. `sync_database` esegue automaticamente la stessa sincronizzazione: questo comando separato serve per anteprima, diagnosi o interventi mirati.
+### Backfill risultati prove libere
+
+Il backfill popola la tabella backend RaceResult con FP1, FP2 e FP3 dei GP già conclusi. Non richiede Uvicorn: fermare il server e chiudere l’app prima di eseguirlo, così SQLite non deve gestire scritture concorrenti. Fare prima una copia di backend/data/formula_knowledge.db.
+
+Dalla cartella backend, con il virtual environment attivo:
+
+~~~powershell
+# Anteprima: chiama Alpha e valida tutti i piloti, senza scrivere il database.
+python -m scripts.backfill_practice_results
+
+# Scrittura: salva le sessioni FP valide dei GP con data gara già trascorsa.
+python -m scripts.backfill_practice_results --apply
+~~~
+
+Il comando è idempotente: una coppia round/sessione già presente viene saltata. Per includere esplicitamente il weekend corrente o tutti i round fino a un numero noto:
+
+~~~powershell
+python -m scripts.backfill_practice_results --apply --through-round <ROUND>
+~~~
+
+Per correggere solo una sessione già memorizzata, usare --force soltanto dopo aver verificato la fonte: la sostituzione è limitata alle coppie round/sessione richieste e avviene in una singola transazione.
+
+~~~powershell
+python -m scripts.backfill_practice_results --apply --round <ROUND> --force
+~~~
+
+Una risposta Alpha vuota non cancella dati esistenti e viene riportata come non disponibile. Questo script è utile solo per diagnosi/manutenzione FP mirata: la sincronizzazione ordinaria è affidata a `sync_database`.
 ### Seed iniziale o reset completo
 
 ```powershell
@@ -454,7 +513,7 @@ La stagione operativa è configurata in `backend/app/core/config.py` tramite `F1
 
 `backend/scripts/seed.py` ricrea il nucleo del database e usa il calendario Jolpica per le gare e le sessioni. I dati statici di squadre, piloti e statistiche storiche sono mantenuti nelle costanti del modulo; il seed non modifica più i dizionari globali durante l’esecuzione. In caso di errore il rollback viene eseguito e l’eccezione viene propagata, così il comando non può apparire riuscito quando il popolamento è incompleto.
 
-`backend/scripts/seed_season_stats.py` ricostruisce le statistiche stagionali dell’anno configurato e salva il risultato al termine dell’elaborazione. `seed_driver_stats.py` e `seed_constructor_stats.py` aggiornano rispettivamente i dati carriera dei piloti e dei costruttori. `sync_database.py` coordina questi script, corregge i campionati, svuota la cache classifiche e aggiorna i feed RSS.
+`backend/scripts/sync_session_results.py` riconcilia i risultati di sessione con rate limit prudente, User-Agent identificativo e retry sui `429`; prima valida sempre l'intera sessione e non elimina dati se la fonte è vuota. `sync_database.py` lo esegue prima del ricalcolo statistiche, quindi coordina risultati, campionati, cache classifiche e feed RSS.
 
 I dati mancanti dei circuiti non devono essere completati con valori inventati: prima si verifica la fonte, poi si aggiunge la voce storica al seed. `scripts.seed` resta un reset distruttivo e non sostituisce `scripts.sync_database` per gli aggiornamenti ordinari.
 

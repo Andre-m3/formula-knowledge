@@ -131,6 +131,7 @@ fun UpdatesScreen() {
     var standingsSelectedTab by remember { mutableStateOf("Drivers") }
 
     var selectedSprintForSessions by remember { mutableStateOf(false) }
+    var selectedRoundForSessions by remember { mutableIntStateOf(0) }
     var selectedGpForSessions by remember { mutableStateOf("") }
     var selectedCountryForSessions by remember { mutableStateOf("") }
     var selectedSessions by remember { mutableStateOf<SessionTimes?>(null) }
@@ -223,6 +224,10 @@ fun UpdatesScreen() {
         calendarRefresh.join()
         isInitialDataReady = true
 
+        // I risultati non bloccano la Home: vengono completati in background
+        // per tutti i GP passati e per quello corrente, se già disponibili.
+        launch { repository.prefetchCompletedSessionResults() }
+
         // Classifiche, statistiche e news restano caricamenti secondari.
         launch { repository.refreshStandings() }
         launch { repository.refreshNews() }
@@ -253,6 +258,7 @@ fun UpdatesScreen() {
                 when (targetScreen) {
                     AppScreen.HOME -> HomeScreen(raceWeek, raceWeek == null, newsEntities, onNavigate = {
                         if (it == AppScreen.RACE_SESSIONS) {
+                            selectedRoundForSessions = raceWeek?.round_number ?: 0
                             selectedSprintForSessions = raceWeek?.is_sprint ?: false
                             selectedGpForSessions = raceWeek?.gp_name ?: ""
                             selectedCountryForSessions = raceWeek?.country ?: ""
@@ -325,20 +331,16 @@ fun UpdatesScreen() {
                     })
                     AppScreen.RACE_SESSIONS -> RaceSessionsScreen(selectedSprintForSessions, selectedGpForSessions, selectedCountryForSessions, selectedSessions, selectedGpStatusForSessions, selectedDatesForSessions, onNavigateToResults = { type ->
                         selectedSessionType = type
-                        selectedRound = raceWeek?.round_number ?: selectedCircuitRound
+                        selectedRound = selectedRoundForSessions
                         selectedGpName = selectedGpForSessions
                         previousScreenForStats = AppScreen.RACE_SESSIONS
                         currentScreen = AppScreen.RESULTS
                     })
                     AppScreen.CIRCUIT_DETAIL -> CircuitDetailScreen(
                         round = selectedCircuitRound,
-                        onNavigateToResults = { round, name ->
-                            selectedRound = round
-                            selectedGpName = name
-                            previousScreenForStats = AppScreen.CIRCUIT_DETAIL
-                            currentScreen = AppScreen.RESULTS
-                        },
+
                     onNavigateToSessions = { isSprint, name, country, sessions, gpStatus, dates ->
+                        selectedRoundForSessions = selectedCircuitRound
                         selectedDatesForSessions = dates
                             selectedSprintForSessions = isSprint
                             selectedGpForSessions = name
@@ -419,7 +421,7 @@ fun UpdatesScreen() {
 }
 
 @Composable
-fun CircuitDetailScreen(round: Int, onNavigateToResults: (Int, String) -> Unit, onNavigateToSessions: (Boolean, String, String, SessionTimes, String, List<String>) -> Unit) {
+fun CircuitDetailScreen(round: Int, onNavigateToSessions: (Boolean, String, String, SessionTimes, String, List<String>) -> Unit) {
     val context = LocalContext.current
     val database = remember { FormulaDatabase.getDatabase(context) }
     val repository = remember { FormulaRepository(database) }
@@ -556,7 +558,7 @@ fun CircuitDetailScreen(round: Int, onNavigateToResults: (Int, String) -> Unit, 
                     
                     item {
                         Spacer(modifier = Modifier.height(4.dp))
-                        // Pulsante delle sessioni o dei risultati
+                        // Selettore sessioni, sia per GP futuri sia per GP già disputati.
                         if (data.status == "future" || data.status == "current") {
                             Button(
                                 onClick = { onNavigateToSessions(data.is_sprint, data.gp_name, data.country, data.sessions, data.status, data.dates) },
@@ -573,16 +575,16 @@ fun CircuitDetailScreen(round: Int, onNavigateToResults: (Int, String) -> Unit, 
                         } else if (data.status == "past") {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Button(
-                                onClick = { onNavigateToResults(data.round, data.gp_name) },
+                                onClick = { onNavigateToSessions(data.is_sprint, data.gp_name, data.country, data.sessions, data.status, data.dates) },
                                 modifier = Modifier.weight(1f).height(48.dp),
                                 shape = RoundedCornerShape(16.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF0033).copy(alpha = 0.9f)),
                                 contentPadding = PaddingValues(0.dp)
                             ) {
                                 Row(modifier = Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
-                                    Icon(Icons.Default.Leaderboard, null, tint = Color.White, modifier = Modifier.size(18.dp))
+                                    Icon(Icons.Default.Timer, null, tint = Color.White, modifier = Modifier.size(18.dp))
                                     Spacer(Modifier.width(6.dp))
-                                    Text("RACE RESULTS", color = Color.White, fontWeight = FontWeight.Black, fontSize = 13.sp)
+                                    Text("SESSION RESULTS", color = Color.White, fontWeight = FontWeight.Black, fontSize = 13.sp)
                                 }
                             }
 

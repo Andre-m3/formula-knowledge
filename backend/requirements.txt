@@ -6,6 +6,7 @@ async-timeout==5.0.1
 beautifulsoup4==4.12.3
 CacheControl==0.14.4
 certifi==2026.4.22
+truststore==0.10.4
 cffi==2.0.0
 charset-normalizer==3.4.7
 click==8.4.0

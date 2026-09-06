@@ -1,3 +1,4 @@
+import app  # Configures the system TLS trust store before requests.
 import requests
 import time
 from sqlalchemy.orm import Session
