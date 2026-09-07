@@ -71,6 +71,37 @@ data class RaceResultEntity(
     val is_session_only: Boolean = false
 )
 
+@Entity(tableName = "session_analyses", primaryKeys = ["round_number", "session_type"])
+data class SessionAnalysisEntity(
+    val round_number: Int,
+    val session_type: String,
+    val available: Boolean,
+    val lap_count: Int,
+    val phases_joined: String,
+    val synced_at: String?,
+    val checked_at: Long,
+    val has_laps: Boolean
+)
+
+@Entity(
+    tableName = "session_laps",
+    indices = [Index(value = ["round_number", "session_type"])]
+)
+data class SessionLapEntity(
+    @PrimaryKey val cache_key: String,
+    val round_number: Int,
+    val session_type: String,
+    val source_lap_id: String,
+    val driver: String,
+    val team: String?,
+    val phase: String,
+    val lap_number: Int,
+    val position: Int?,
+    val time_milliseconds: Int?,
+    val time: String?,
+    val average_speed: Float?,
+    val is_fastest_lap: Boolean
+)
 @Entity(tableName = "calendar_entries")
 data class CalendarEntity(
     @PrimaryKey val round: Int,
@@ -291,6 +322,30 @@ interface RaceDao {
 }
 
 @Dao
+interface SessionAnalysisDao {
+    @Query("SELECT * FROM session_analyses WHERE round_number = :round AND session_type = :sessionType")
+    fun getSessionAnalysis(round: Int, sessionType: String): Flow<SessionAnalysisEntity?>
+
+    @Query("SELECT * FROM session_laps WHERE round_number = :round AND session_type = :sessionType ORDER BY phase ASC, lap_number ASC, driver ASC")
+    fun getSessionLaps(round: Int, sessionType: String): Flow<List<SessionLapEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAnalysis(analysis: SessionAnalysisEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertLaps(laps: List<SessionLapEntity>)
+
+    @Query("DELETE FROM session_laps WHERE round_number = :round AND session_type = :sessionType")
+    suspend fun clearLaps(round: Int, sessionType: String)
+
+    @Transaction
+    suspend fun updateAnalysis(analysis: SessionAnalysisEntity, laps: List<SessionLapEntity>) {
+        clearLaps(analysis.round_number, analysis.session_type)
+        insertAnalysis(analysis)
+        if (laps.isNotEmpty()) insertLaps(laps)
+    }
+}
+@Dao
 interface GeneralDao {
     @Query("SELECT * FROM calendar_entries ORDER BY round ASC")
     fun getCalendar(): Flow<List<CalendarEntity>>
@@ -368,13 +423,14 @@ interface ConstructorSeasonStatsDao {
 // --- 3. DATABASE (Il motore Room) ---
 
 @Database(
-    entities = [DriverStandingEntity::class, ConstructorStandingEntity::class, CircuitDetailEntity::class, RaceResultEntity::class, CalendarEntity::class, RaceWeekEntity::class, DriverStatsEntity::class, ConstructorStatsEntity::class, DriverSeasonStatsEntity::class, ConstructorSeasonStatsEntity::class, NewsArticleEntity::class],
-    version = 21,
+    entities = [DriverStandingEntity::class, ConstructorStandingEntity::class, CircuitDetailEntity::class, RaceResultEntity::class, SessionAnalysisEntity::class, SessionLapEntity::class, CalendarEntity::class, RaceWeekEntity::class, DriverStatsEntity::class, ConstructorStatsEntity::class, DriverSeasonStatsEntity::class, ConstructorSeasonStatsEntity::class, NewsArticleEntity::class],
+    version = 22,
     exportSchema = false
 )
 abstract class FormulaDatabase : RoomDatabase() {
     abstract fun standingsDao(): StandingsDao
     abstract fun raceDao(): RaceDao
+    abstract fun sessionAnalysisDao(): SessionAnalysisDao
     abstract fun generalDao(): GeneralDao
     abstract fun driverStatsDao(): DriverStatsDao
     abstract fun constructorStatsDao(): ConstructorStatsDao
@@ -389,6 +445,19 @@ abstract class FormulaDatabase : RoomDatabase() {
                 )
             }
         }
+        private val MIGRATION_21_22 = object : Migration(21, 22) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `session_analyses` (`round_number` INTEGER NOT NULL, `session_type` TEXT NOT NULL, `available` INTEGER NOT NULL, `lap_count` INTEGER NOT NULL, `phases_joined` TEXT NOT NULL, `synced_at` TEXT, `checked_at` INTEGER NOT NULL, `has_laps` INTEGER NOT NULL, PRIMARY KEY(`round_number`, `session_type`))"
+                )
+                database.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `session_laps` (`cache_key` TEXT NOT NULL, `round_number` INTEGER NOT NULL, `session_type` TEXT NOT NULL, `source_lap_id` TEXT NOT NULL, `driver` TEXT NOT NULL, `team` TEXT, `phase` TEXT NOT NULL, `lap_number` INTEGER NOT NULL, `position` INTEGER, `time_milliseconds` INTEGER, `time` TEXT, `average_speed` REAL, `is_fastest_lap` INTEGER NOT NULL, PRIMARY KEY(`cache_key`))"
+                )
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_session_laps_round_number_session_type` ON `session_laps` (`round_number`, `session_type`)"
+                )
+            }
+        }
         @Volatile
         private var INSTANCE: FormulaDatabase? = null
 
@@ -399,7 +468,7 @@ abstract class FormulaDatabase : RoomDatabase() {
                     FormulaDatabase::class.java,
                     "formula_knowledge_db"
                 )
-                .addMigrations(MIGRATION_20_21)
+                .addMigrations(MIGRATION_20_21, MIGRATION_21_22)
                 .fallbackToDestructiveMigration()
                 .build()
                 INSTANCE = instance

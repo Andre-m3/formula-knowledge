@@ -20,6 +20,17 @@ interface F1ApiService {
     @GET("api/v1/results/{round_number}/{session_type}")
     suspend fun getSessionResults(@Path("round_number") round: Int, @Path("session_type") sessionType: String): List<RaceResultResponse>
 
+    @GET("api/v1/analysis/{round_number}/{session_type}/availability")
+    suspend fun getSessionAnalysisAvailability(
+        @Path("round_number") round: Int,
+        @Path("session_type") sessionType: String
+    ): SessionAnalysisAvailabilityResponse
+
+    @GET("api/v1/analysis/{round_number}/{session_type}")
+    suspend fun getSessionAnalysis(
+        @Path("round_number") round: Int,
+        @Path("session_type") sessionType: String
+    ): SessionAnalysisResponse
     @GET("api/v1/results/{round_number}/updates")
     suspend fun getPastGpUpdates(@Path("round_number") round: Int): List<TeamUpdatesResponse>
 

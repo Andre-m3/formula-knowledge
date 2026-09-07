@@ -14,6 +14,7 @@ class FormulaRepository(private val database: FormulaDatabase) {
 
     private val dao = database.standingsDao()
     private val raceDao = database.raceDao()
+    private val sessionAnalysisDao = database.sessionAnalysisDao()
     private val generalDao = database.generalDao()
     private val driverStatsDao = database.driverStatsDao()
     private val constructorStatsDao = database.constructorStatsDao()
@@ -35,6 +36,7 @@ class FormulaRepository(private val database: FormulaDatabase) {
         private val standardResultSessionTypes = listOf("fp1", "fp2", "fp3", "quali", "race")
         private val sprintResultSessionTypes = listOf("sprint_shootout", "sprint")
         private const val EMPTY_RESULT_RETRY_INTERVAL = 2 * 60 * 1000L
+        private const val EMPTY_ANALYSIS_RETRY_INTERVAL = 15 * 60 * 1000L
         private val fetchedDriverStats = mutableMapOf<String, Long>()
         private val fetchedDriverSeasonStats = mutableMapOf<String, Long>()
         private val fetchedConstructorStats = mutableMapOf<String, Long>()
@@ -101,6 +103,12 @@ class FormulaRepository(private val database: FormulaDatabase) {
     fun getCircuitDetail(round: Int): Flow<CircuitDetailEntity?> = raceDao.getCircuitDetail(round)
     
     fun getRaceResults(round: Int, sessionType: String): Flow<List<RaceResultEntity>> = raceDao.getRaceResults(round, sessionType)
+    fun getSessionAnalysis(round: Int, sessionType: String): Flow<SessionAnalysisEntity?> =
+        sessionAnalysisDao.getSessionAnalysis(round, sessionType)
+
+    fun getSessionAnalysisLaps(round: Int, sessionType: String): Flow<List<SessionLapEntity>> =
+        sessionAnalysisDao.getSessionLaps(round, sessionType)
+
 
     suspend fun refreshCircuitDetail(round: Int) {
         val now = System.currentTimeMillis()
@@ -187,6 +195,51 @@ class FormulaRepository(private val database: FormulaDatabase) {
         }
     }
 
+    /** Records the lightweight server-side availability without downloading laps. */
+    suspend fun refreshSessionAnalysisAvailability(round: Int, sessionType: String) {
+        val local = sessionAnalysisDao.getSessionAnalysis(round, sessionType).firstOrNull()
+        val now = System.currentTimeMillis()
+        if (local?.available == true || (local != null && now - local.checked_at < EMPTY_ANALYSIS_RETRY_INTERVAL)) return
+
+        try {
+            val apiData = RetrofitClient.apiService.getSessionAnalysisAvailability(round, sessionType)
+            sessionAnalysisDao.insertAnalysis(SessionAnalysisEntity(
+                round_number = round, session_type = sessionType, available = apiData.available,
+                lap_count = apiData.lap_count, phases_joined = apiData.phases.joinToString(","),
+                synced_at = apiData.synced_at, checked_at = now, has_laps = local?.has_laps == true,
+            ))
+        } catch (e: Exception) {
+            Log.e("FormulaRepository", "refreshSessionAnalysisAvailability for round $round, session $sessionType failed", e)
+        }
+    }
+
+    /** Downloads the complete snapshot once, only after the UI asks to open it. */
+    suspend fun refreshSessionAnalysisData(round: Int, sessionType: String) {
+        val local = sessionAnalysisDao.getSessionAnalysis(round, sessionType).firstOrNull() ?: return
+        if (!local.available || local.has_laps) return
+
+        try {
+            val apiData = RetrofitClient.apiService.getSessionAnalysis(round, sessionType)
+            if (!apiData.available) return
+            val analysis = SessionAnalysisEntity(
+                round_number = round, session_type = sessionType, available = true,
+                lap_count = apiData.lap_count, phases_joined = apiData.phases.joinToString(","),
+                synced_at = apiData.synced_at, checked_at = System.currentTimeMillis(), has_laps = true,
+            )
+            val laps = apiData.laps.map {
+                SessionLapEntity(
+                    cache_key = "$round|$sessionType|${it.source_lap_id}", round_number = round,
+                    session_type = sessionType, source_lap_id = it.source_lap_id, driver = it.driver,
+                    team = it.team, phase = it.phase, lap_number = it.lap_number, position = it.position,
+                    time_milliseconds = it.time_milliseconds, time = it.time,
+                    average_speed = it.average_speed, is_fastest_lap = it.is_fastest_lap,
+                )
+            }
+            sessionAnalysisDao.updateAnalysis(analysis, laps)
+        } catch (e: Exception) {
+            Log.e("FormulaRepository", "refreshSessionAnalysisData for round $round, session $sessionType failed", e)
+        }
+    }
     /**
      * Fills Room after the Home screen is ready. Historical sessions are
      * immutable once saved; the current GP is also tried so results appear as

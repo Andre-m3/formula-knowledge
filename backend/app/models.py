@@ -82,6 +82,11 @@ class Race(Base):
     num_races_held: Mapped[int] = 0
     
     results = relationship("RaceResult", back_populates="race")
+    session_analyses = relationship(
+        "SessionAnalysis",
+        back_populates="race",
+        cascade="all, delete-orphan",
+    )
     updates = relationship("TechnicalUpdate", back_populates="race")
 
 # NUOVE TABELLE PER IL CACHING DELLE CLASSIFICHE (Punto 1 brainstorming)
@@ -141,6 +146,72 @@ class RaceResult(Base):
         "SessionParticipant",
         back_populates="race_results",
     )
+
+class SessionAnalysis(Base):
+    """A complete, persisted lap-by-lap snapshot for a concluded session.
+
+    RaceResult remains the canonical official classification. This model holds
+    the separate, much larger timing payload used by Race/Quali Analysis only.
+    """
+
+    __tablename__ = "session_analyses"
+    __table_args__ = (
+        UniqueConstraint(
+            "race_id",
+            "session_type",
+            name="uq_session_analyses_race_session",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    race_id = Column(Integer, ForeignKey("races.id"), nullable=False, index=True)
+    session_type = Column(String, nullable=False, index=True)
+    source_session_code = Column(String, nullable=False)
+    lap_count = Column(Integer, nullable=False, default=0)
+    synced_at = Column(
+        DateTime,
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+
+    race = relationship("Race", back_populates="session_analyses")
+    laps = relationship(
+        "SessionLap",
+        back_populates="analysis",
+        cascade="all, delete-orphan",
+    )
+
+class SessionLap(Base):
+    """Immutable display snapshot of one classified lap from Alpha timing."""
+
+    __tablename__ = "session_laps"
+    __table_args__ = (
+        UniqueConstraint(
+            "analysis_id",
+            "source_lap_id",
+            name="uq_session_laps_analysis_source_lap",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    analysis_id = Column(
+        Integer,
+        ForeignKey("session_analyses.id"),
+        nullable=False,
+        index=True,
+    )
+    source_lap_id = Column(String, nullable=False)
+    driver_name = Column(String, nullable=False, index=True)
+    team_name = Column(String, nullable=True)
+    phase = Column(String, nullable=False, index=True)
+    lap_number = Column(Integer, nullable=False)
+    position = Column(Integer, nullable=True)
+    time_milliseconds = Column(Integer, nullable=True)
+    time_display = Column(String, nullable=True)
+    average_speed = Column(Float, nullable=True)
+    is_fastest_lap = Column(Boolean, nullable=False, default=False)
+
+    analysis = relationship("SessionAnalysis", back_populates="laps")
 
 class TechnicalUpdate(Base):
     __tablename__ = "technical_updates"

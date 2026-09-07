@@ -64,7 +64,7 @@ import com.formulaknowledge.app.data.*
 import com.formulaknowledge.app.utils.F1Utils
 import kotlinx.coroutines.launch
 
-enum class AppScreen { HOME, CALENDAR, PERSONAL, UPDATES_LIST, TEAM_DETAIL, WEATHER_DETAIL, RESULTS, STANDINGS, DRIVER_DETAIL, CONSTRUCTOR_DETAIL, RACE_SESSIONS, CIRCUIT_DETAIL, HEAD_TO_HEAD, HEAD_TO_HEAD_CONSTRUCTOR, NEWS, PROFILE }
+enum class AppScreen { HOME, CALENDAR, PERSONAL, UPDATES_LIST, TEAM_DETAIL, WEATHER_DETAIL, RESULTS, STANDINGS, DRIVER_DETAIL, CONSTRUCTOR_DETAIL, RACE_SESSIONS, CIRCUIT_DETAIL, HEAD_TO_HEAD, HEAD_TO_HEAD_CONSTRUCTOR, NEWS, PROFILE, SESSION_ANALYSIS }
 
 val AppBackgroundGradientColor = Color(0xFF0B0E14)
 
@@ -207,6 +207,7 @@ fun UpdatesScreen() {
             AppScreen.CONSTRUCTOR_DETAIL -> currentScreen = previousScreenForStats
             AppScreen.CIRCUIT_DETAIL -> currentScreen = AppScreen.CALENDAR
             AppScreen.RESULTS -> currentScreen = previousScreenForStats
+            AppScreen.SESSION_ANALYSIS -> currentScreen = AppScreen.RESULTS
             AppScreen.HEAD_TO_HEAD -> currentScreen = AppScreen.DRIVER_DETAIL
             AppScreen.HEAD_TO_HEAD_CONSTRUCTOR -> currentScreen = AppScreen.CONSTRUCTOR_DETAIL
             AppScreen.RACE_SESSIONS -> currentScreen = previousScreenForSessions
@@ -302,11 +303,24 @@ fun UpdatesScreen() {
                     AppScreen.UPDATES_LIST -> UpdatesListScreen(updatesWrapper?.data ?: emptyList(), isLoadingUpdates, onTeamClick = { selectedTeam = it; currentScreen = AppScreen.TEAM_DETAIL })
                     AppScreen.TEAM_DETAIL -> TeamUpdateDetailScreen(selectedTeam!!)
                     AppScreen.WEATHER_DETAIL -> WeatherDetailScreen(raceWeek, raceWeekEntity)
-                    AppScreen.RESULTS -> RaceResultsScreen(selectedRound, selectedGpName, selectedSessionType, onDriverClick = { name ->
-                        previousScreenForStats = AppScreen.RESULTS
-                        selectedDriverName = name
-                        currentScreen = AppScreen.DRIVER_DETAIL
-                    })
+                    AppScreen.RESULTS -> RaceResultsScreen(
+                        selectedRound,
+                        selectedGpName,
+                        selectedSessionType,
+                        onDriverClick = { name ->
+                            previousScreenForStats = AppScreen.RESULTS
+                            selectedDriverName = name
+                            currentScreen = AppScreen.DRIVER_DETAIL
+                        },
+                        onOpenAnalysis = {
+                            currentScreen = AppScreen.SESSION_ANALYSIS
+                        },
+                    )
+                    AppScreen.SESSION_ANALYSIS -> SessionAnalysisScreen(
+                        roundNumber = selectedRound,
+                        gpName = selectedGpName,
+                        sessionType = selectedSessionType,
+                    )
                     AppScreen.STANDINGS -> StandingsScreen(
                         selectedTab = standingsSelectedTab,
                         onTabChange = { standingsSelectedTab = it },
@@ -360,7 +374,7 @@ fun UpdatesScreen() {
                 }
 
             val isPreferencesOnboardingActive = currentScreen == AppScreen.PERSONAL && authUiState.isLoggedIn && authUiState.userProfile != null && !authUiState.userProfile!!.preferences_set
-            if (currentScreen in listOf(AppScreen.HOME, AppScreen.CALENDAR, AppScreen.PERSONAL, AppScreen.NEWS, AppScreen.RESULTS, AppScreen.STANDINGS, AppScreen.WEATHER_DETAIL, AppScreen.DRIVER_DETAIL, AppScreen.CONSTRUCTOR_DETAIL, AppScreen.RACE_SESSIONS, AppScreen.CIRCUIT_DETAIL) && !isPreferencesOnboardingActive) {
+            if (currentScreen in listOf(AppScreen.HOME, AppScreen.CALENDAR, AppScreen.PERSONAL, AppScreen.NEWS, AppScreen.RESULTS, AppScreen.STANDINGS, AppScreen.WEATHER_DETAIL, AppScreen.DRIVER_DETAIL, AppScreen.CONSTRUCTOR_DETAIL, AppScreen.RACE_SESSIONS, AppScreen.CIRCUIT_DETAIL, AppScreen.SESSION_ANALYSIS) && !isPreferencesOnboardingActive) {
                 Box(
                     modifier = Modifier
                         .offset(y = bottomBarOffset)

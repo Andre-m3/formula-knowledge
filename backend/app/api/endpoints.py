@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter
 
+from .analysis import router as analysis_router
 from .auth import router as auth_router
 from .content import router as content_router
 from .raceweek import router as raceweek_router
@@ -12,6 +13,7 @@ from .stats import router as stats_router
 
 router = APIRouter()
 
+router.include_router(analysis_router)
 router.include_router(raceweek_router)
 router.include_router(results_router)
 router.include_router(standings_router)

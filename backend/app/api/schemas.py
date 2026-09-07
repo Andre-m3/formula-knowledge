@@ -260,3 +260,29 @@ class DriverStatsResponseSchema(BaseModel):
     grand_slams: int
 
     last_updated: datetime
+
+
+class SessionAnalysisAvailabilityResponseSchema(BaseModel):
+    round_number: int
+    session_type: str
+    available: bool
+    lap_count: int
+    phases: List[str]
+    synced_at: Optional[datetime] = None
+
+
+class SessionLapResponseSchema(BaseModel):
+    source_lap_id: str
+    driver: str
+    team: Optional[str] = None
+    phase: str
+    lap_number: int
+    position: Optional[int] = None
+    time_milliseconds: Optional[int] = None
+    time: Optional[str] = None
+    average_speed: Optional[float] = None
+    is_fastest_lap: bool
+
+
+class SessionAnalysisResponseSchema(SessionAnalysisAvailabilityResponseSchema):
+    laps: List[SessionLapResponseSchema]

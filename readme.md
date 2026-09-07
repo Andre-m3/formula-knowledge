@@ -20,7 +20,9 @@ formula-knowledge/
 │   │   ├── script.py.mako
 │   │   └── versions/
 │   │       ├── 9f34e5026ddc_baseline_schema.py
-│   │       └── e71272d84bd5_add_tsunoda_to_driver_roster.py
+│   │       ├── e71272d84bd5_add_tsunoda_to_driver_roster.py
+│       ├── b84c1e8d4a72_add_session_participants.py
+│       └── d6a4e12f9b3c_add_session_analysis_cache.py
 │   ├── alembic.ini                  # Configurazione migration schema
 │   ├── app/
 │   │   ├── api/
@@ -29,6 +31,7 @@ formula-knowledge/
 │   │   │   ├── dependencies.py          # API key, OAuth2 e Firebase
 │   │   │   ├── raceweek.py              # race week, calendario e circuiti
 │   │   │   ├── results.py               # risultati e aggiornamenti GP
+│   │   │   ├── analysis.py              # Race/Quali Analysis locale
 │   │   │   ├── standings.py             # classifiche
 │   │   │   ├── content.py               # news e aggiornamenti tecnici
 │   │   │   ├── stats.py                 # statistiche carriera/stagione
@@ -38,6 +41,8 @@ formula-knowledge/
 │   │   ├── services/
 │   │   │   ├── calendar_service.py
 │   │   │   ├── external_api_service.py
+│   │   │   ├── result_cache_service.py
+│   │   │   ├── session_analysis_service.py
 │   │   │   ├── fia_scraper.py
 │   │   │   └── weather_service.py
 │   │   ├── database.py                   # Engine, SessionLocal e Base attuali
@@ -48,6 +53,7 @@ formula-knowledge/
 │   │   ├── __init__.py
 │   │   ├── backfill_practice_results.py # Manutenzione mirata FP1/FP2/FP3
 │   │   ├── sync_session_results.py      # Riconcilia RaceResult da Jolpica
+│   │   ├── sync_session_analysis.py     # Archivia giri Race/Quali da Alpha
 │   │   ├── seed.py
 │   │   ├── seed_constructor_stats.py
 │   │   ├── seed_driver_stats.py
@@ -70,6 +76,7 @@ formula-knowledge/
 │   │   │   │   ├── RetrofitClient.kt
 │   │   │   │   ├── FormulaRepository.kt
 │   │   │   │   ├── FormulaDatabase.kt
+│   │   │   ├── SessionAnalysisResponse.kt
 │   │   │   │   ├── TokenManager.kt
 │   │   │   │   └── response/data classes
 │   │   │   ├── ui/
@@ -178,6 +185,17 @@ Il calendario operativo non utilizza più una lista hardcoded locale quando Jolp
 `RaceResult` è la fonte canonica dei risultati serviti all'app. `sync_database` esegue per primo una riconciliazione idempotente di Race, Quali, Sprint, Sprint Qualifying e FP dei round conclusi e del weekend corrente: il round corrente viene individuato da `CalendarService`, quindi le sessioni di venerdì e sabato sono incluse anche prima della gara di domenica. Lo script confronta la fonte con il database e sostituisce soltanto una sessione completa e differente. La route risultati conserva un recupero lazy esclusivamente come fallback se una sessione non è ancora presente. FP1, FP2, FP3 e Sprint Qualifying usano Alpha (codice `SQ` per lo Shootout e campi SQ1/SQ2/SQ3); Race, Quali e Sprint usano le route Ergast compatibili. Una risposta vuota, non valida o rate-limited non cancella mai dati esistenti.
 
 Jolpica Alpha è la fonte operativa corrente per FP e Sprint Qualifying; essendo un contratto Alpha, va monitorata durante i weekend. F1DB resta una possibile fonte di backfill storico, non un rimpiazzo pianificato delle API Jolpica.
+### Race / Quali Analysis post-sessione
+
+Il modello separa deliberatamente classifiche ufficiali e telemetria giro per giro:
+
+- `RaceResult` resta la fonte canonica della classifica di sessione e delle statistiche;
+- `SessionAnalysis` identifica un archivio completo per round/sessione;
+- `SessionLap` conserva nome pilota e team come snapshot, fase (`R`, `Q1`-`Q3`, `SQ1`-`SQ3`), giro, posizione, tempo, velocità media e giro più rapido;
+- `sync_session_analysis` usa il `laps_url` Alpha risolto dalla schedule stagionale, richiede prima l'esistenza del risultato canonico e sostituisce un archivio solo dopo la validazione completa del payload;
+- `/availability` è una lookup leggera per la UI; l'endpoint completo è local-only e non effettua fallback verso Jolpica.
+
+In Android, Race Results mostra l'azione Analysis grigia finché l'archivio non esiste. Quando disponibile, Room salva dapprima lo stato e scarica i giri completi una sola volta all'apertura della schermata. La UI offre fase Quali/Sprint Quali, selettore pilota, andamento della posizione in gara e passo/giro, anche offline dopo il primo caricamento.
 ### Trust TLS su Windows
 
 Il backend carica truststore all’avvio prima di requests. In sviluppo Windows usa quindi CryptoAPI e il trust store di sistema, mantenendo la verifica TLS attiva anche in presenza di CA aziendali o antivirus attendibili nel sistema. truststore è una dipendenza backend pinata; non usare verify=False o bundle di certificati non verificati.
@@ -266,7 +284,7 @@ I tester che partecipano soltanto alle prove libere vivono in session_participan
 
 ### Migrazioni dello schema
 
-La configurazione della connessione e letta da `app/core/config.py`. La revisione baseline `9f34e5026ddc` descrive lo schema SQLAlchemy canonico; il database runtime e attualmente registrato alla revisione `b84c1e8d4a72` tramite `alembic_version`.
+La configurazione della connessione e letta da `app/core/config.py`. La revisione baseline `9f34e5026ddc` descrive lo schema SQLAlchemy canonico; il database runtime è attualmente registrato alla revisione `d6a4e12f9b3c` tramite `alembic_version`.
 
 Le migration modificano lo schema in modo versionato; non sostituiscono i seed dei dati. Prima di ogni modifica strutturale si esegue un backup e si revisiona manualmente il file generato con autogenerate.
 
@@ -274,7 +292,7 @@ Le migration modificano lo schema in modo versionato; non sostituiscono i seed d
 
 Il frontend usa Kotlin, Jetpack Compose, Material 3, Retrofit, OkHttp, Room, DataStore, Coil e Firebase.
 
-Room migra dalla versione 20 alla 21 aggiungendo il flag is_session_only alla cache risultati; la migrazione SQL aggiunge la colonna con default false e non cancella la cache esistente.
+Room migra dalla versione 20 alla 21 aggiungendo il flag `is_session_only` alla cache risultati e dalla 21 alla 22 aggiungendo `session_analyses`/`session_laps`. Entrambe le migration sono additive e non cancellano cache esistenti. La cache Analysis registra prima la sola disponibilità e scarica i giri completi una sola volta al primo accesso alla schermata, mantenendoli poi offline.
 FirebaseAuth gestisce la sessione utente. La UI espone attualmente solo Google Sign-In; il codice email/password resta predisposto ma disabilitato dal flag `EMAIL_PASSWORD_AUTH_ENABLED`. `TokenManager` conserva solo lo stato onboarding e rimuove la chiave token legacy, senza persistire nuovi ID token.
 
 ### Flusso dati
@@ -369,6 +387,7 @@ Il comando:
 5. ricalcola le statistiche carriera dei costruttori;
 6. svuota la cache delle classifiche;
 7. aggiorna le news RSS.
+8. archivia soltanto Race/Quali/Sprint Quali Analysis mancanti.
 
 ### Sincronizzazione canonica dei risultati
 
@@ -386,6 +405,22 @@ python -m scripts.sync_session_results --apply --round <ROUND>
 ~~~
 
 Lo script include il GP corrente per recuperare sessioni già concluse: usa il calendario, non la sola data della gara, per includere anche venerdì e sabato prima della domenica. Attende almeno 1,1 secondi tra richieste Jolpica, usa retry esponenziale per `429 Too Many Requests` e distingue un rate limit da una sessione realmente non disponibile. `sync_database` esegue automaticamente la stessa sincronizzazione: questo comando separato serve per anteprima, diagnosi o interventi mirati.
+### Archivio Race / Quali Analysis
+
+Dalla cartella `backend`, usare questo comando prima in anteprima e poi con `--apply` quando si vogliono popolare o diagnosticare le analisi:
+
+~~~powershell
+# Solo verifica: non scrive il database.
+python -m scripts.sync_session_analysis --through-round <ROUND>
+
+# Salva soltanto gli archivi completi ancora mancanti.
+python -m scripts.sync_session_analysis --apply --through-round <ROUND>
+
+# Rilegge un archivio esistente solo per una correzione della fonte.
+python -m scripts.sync_session_analysis --apply --round <ROUND> --refresh
+~~~
+
+Race, Quali e Sprint Quali vengono elaborate solo dopo che il corrispondente risultato canonico è già presente. Il default non richiama Alpha per archivi esistenti; `--refresh` è quindi eccezionale. Una risposta vuota, non valida o `429` non elimina mai lo snapshot già salvato. Il normale `python -m scripts.sync_database` esegue automaticamente il recupero dei soli snapshot mancanti.
 ### Backfill risultati prove libere
 
 Il backfill popola la tabella backend RaceResult con FP1, FP2 e FP3 dei GP già conclusi. Non richiede Uvicorn: fermare il server e chiudere l’app prima di eseguirlo, così SQLite non deve gestire scritture concorrenti. Fare prima una copia di backend/data/formula_knowledge.db.
@@ -513,7 +548,7 @@ La stagione operativa è configurata in `backend/app/core/config.py` tramite `F1
 
 `backend/scripts/seed.py` ricrea il nucleo del database e usa il calendario Jolpica per le gare e le sessioni. I dati statici di squadre, piloti e statistiche storiche sono mantenuti nelle costanti del modulo; il seed non modifica più i dizionari globali durante l’esecuzione. In caso di errore il rollback viene eseguito e l’eccezione viene propagata, così il comando non può apparire riuscito quando il popolamento è incompleto.
 
-`backend/scripts/sync_session_results.py` riconcilia i risultati di sessione con rate limit prudente, User-Agent identificativo e retry sui `429`; prima valida sempre l'intera sessione e non elimina dati se la fonte è vuota. `sync_database.py` lo esegue prima del ricalcolo statistiche, quindi coordina risultati, campionati, cache classifiche e feed RSS.
+`backend/scripts/sync_session_results.py` riconcilia i risultati di sessione con rate limit prudente, User-Agent identificativo e retry sui `429`; prima valida sempre l'intera sessione e non elimina dati se la fonte è vuota. `sync_database.py` esegue anche `sync_session_analysis` in modalità missing-only: coordina risultati, archivio Race/Quali Analysis, campionati, cache classifiche e feed RSS senza riscaricare snapshot già completi.
 
 I dati mancanti dei circuiti non devono essere completati con valori inventati: prima si verifica la fonte, poi si aggiunge la voce storica al seed. `scripts.seed` resta un reset distruttivo e non sostituisce `scripts.sync_database` per gli aggiornamenti ordinari.
 

@@ -52,7 +52,8 @@ fun RaceResultsScreen(
     roundNumber: Int, 
     gpName: String,
     sessionType: String,
-    onDriverClick: (String) -> Unit = {}
+    onDriverClick: (String) -> Unit = {},
+    onOpenAnalysis: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val database = remember { FormulaDatabase.getDatabase(context) }
@@ -60,6 +61,9 @@ fun RaceResultsScreen(
 
     val resultsEntities by repository.getRaceResults(roundNumber, sessionType).collectAsState(initial = emptyList())
     val rawResults = resultsEntities.map { RaceResultResponse(it.position, it.driver, it.team, it.points, it.time, it.q1, it.q2, it.q3, it.is_session_only) }
+    val supportsSessionAnalysis = sessionType in setOf("race", "quali", "sprint_shootout")
+    val analysisEntity by repository.getSessionAnalysis(roundNumber, sessionType)
+        .collectAsState(initial = null)
     
     val isQuali = sessionType == "quali" || sessionType == "sprint_shootout"
     val qTabs = if (sessionType == "quali") listOf("Q1", "Q2", "Q3") else if (sessionType == "sprint_shootout") listOf("SQ1", "SQ2", "SQ3") else emptyList()
@@ -120,6 +124,9 @@ fun RaceResultsScreen(
 
     LaunchedEffect(roundNumber, sessionType) {
         repository.refreshRaceResults(roundNumber, sessionType)
+        if (supportsSessionAnalysis) {
+            repository.refreshSessionAnalysisAvailability(roundNumber, sessionType)
+        }
         resultsRequestCompleted = true
     }
 
@@ -207,17 +214,50 @@ fun RaceResultsScreen(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // --- TABS PER LE QUALIFICHE ---
+        if (supportsSessionAnalysis && !isQuali) {
+            SessionAnalysisAction(
+                sessionType = sessionType,
+                available = analysisEntity?.available,
+                onClick = onOpenAnalysis,
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+        }
+
+        // --- TABS E ACTION PER LE QUALIFICHE ---
         if (isQuali) {
-            Row(modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp), horizontalArrangement = Arrangement.Center) {
-                Row(modifier = Modifier.background(Color.White.copy(alpha = 0.04f), RoundedCornerShape(12.dp)).padding(4.dp)) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(IntrinsicSize.Min)
+                    .padding(bottom = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Row(
+                    modifier = Modifier
+                        .background(Color.White.copy(alpha = 0.04f), RoundedCornerShape(12.dp))
+                        .padding(4.dp),
+                ) {
                     qTabs.forEach { tab ->
                         val isSelected = selectedQTab == tab
-                        Box(modifier = Modifier.background(if (isSelected) Color(0xFF00FFCC).copy(alpha = 0.15f) else Color.Transparent, RoundedCornerShape(8.dp)).clickable { selectedQTab = tab }.padding(horizontal = 14.dp, vertical = 4.dp)) {
+                        Box(
+                            modifier = Modifier
+                                .background(if (isSelected) Color(0xFF00FFCC).copy(alpha = 0.15f) else Color.Transparent, RoundedCornerShape(8.dp))
+                                .clickable { selectedQTab = tab }
+                                .padding(horizontal = 14.dp, vertical = 4.dp),
+                        ) {
                             Text(tab, color = if (isSelected) Color(0xFF00FFCC) else Color.White.copy(alpha = 0.4f), fontWeight = FontWeight.Black, fontSize = 12.sp)
                         }
                     }
                 }
+                Spacer(modifier = Modifier.weight(1f))
+                Spacer(modifier = Modifier.width(8.dp))
+                SessionAnalysisAction(
+                    sessionType = sessionType,
+                    available = analysisEntity?.available,
+                    compact = true,
+                    onClick = onOpenAnalysis,
+                )
             }
         }
 
@@ -276,6 +316,58 @@ fun RaceResultsScreen(
 }
 
 @Composable
+private fun SessionAnalysisAction(
+    sessionType: String,
+    available: Boolean?,
+    compact: Boolean = false,
+    onClick: () -> Unit,
+) {
+    val label = when (sessionType) {
+        "quali" -> "QUALI ANALYSIS"
+        "sprint_shootout" -> "SPRINT QUALI ANALYSIS"
+        else -> "RACE ANALYSIS"
+    }
+    val status = if (compact) {
+        label
+    } else when (available) {
+        true -> label
+        null -> "CHECKING ANALYSIS..."
+        false -> "ANALYSIS NOT AVAILABLE YET"
+    }
+    val accent = Color(0xFF00FFCC)
+    Surface(
+        modifier = (if (compact) Modifier.wrapContentWidth().fillMaxHeight() else Modifier.fillMaxWidth().height(42.dp))
+            .clickable(enabled = available == true, onClick = onClick),
+        shape = RoundedCornerShape(12.dp),
+        color = if (available == true) accent.copy(alpha = 0.10f) else Color.White.copy(alpha = 0.035f),
+        border = BorderStroke(
+            1.dp,
+            if (available == true) accent.copy(alpha = 0.65f) else Color.White.copy(alpha = 0.12f),
+        ),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxSize().padding(horizontal = if (compact) 11.dp else 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(
+                text = status,
+                color = if (available == true) accent else Color.White.copy(alpha = 0.38f),
+                fontSize = if (compact) 10.sp else 11.sp,
+                fontWeight = FontWeight.Black,
+                letterSpacing = 0.5.sp,
+            )
+            Text(
+                text = if (available == true) "→" else "—",
+                color = if (available == true) accent else Color.White.copy(alpha = 0.25f),
+                fontSize = if (compact) 14.sp else 18.sp,
+                fontWeight = FontWeight.Black,
+            )
+        }
+    }
+}
+
+@Composable
 private fun SessionResultsContent(
     rawResults: List<RaceResultResponse>,
     results: List<RaceResultResponse>,
@@ -317,7 +409,7 @@ private fun SessionResultsContent(
             contentPadding = PaddingValues(bottom = 120.dp),
         ) {
             item {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     val colors = listOf(Color(0xFFFFD700), Color(0xFFC0C0C0), Color(0xFFCD7F32))
                     focusResults.forEachIndexed { index, res ->
                         val displayPos = if (isQuali) index + 1 else res.position
@@ -390,37 +482,18 @@ fun PodiumHorizontalCard(result: RaceResultResponse, displayPosition: Int, color
             Text(
                 text = "P${displayPosition}",
                 color = color.copy(alpha = 0.05f),
-                fontSize = if (isLeader) 110.sp else 90.sp,
+                fontSize = if (isLeader) 104.sp else 86.sp,
                 fontWeight = FontWeight.Black,
                 fontStyle = FontStyle.Italic,
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
-                    .offset(x = 20.dp, y = 5.dp)
+                    .offset(x = 20.dp, y = 0.dp)
             )
 
             Row(
                 modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Surface(
-                    color = color,
-                    shape = CircleShape,
-                    modifier = Modifier.size(if (isLeader) 42.dp else 34.dp),
-                    shadowElevation = if (isLeader) 8.dp else 0.dp
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Text(
-                            text = displayPosition.toString(),
-                            color = Color.Black,
-                            fontSize = if (isLeader) 24.sp else 18.sp,
-                            fontWeight = FontWeight.Black,
-                            fontStyle = FontStyle.Italic
-                        )
-                    }
-                }
-                
-                Spacer(modifier = Modifier.width(16.dp))
-                
                 Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
                     Text(
                         text = firstName,
@@ -428,7 +501,7 @@ fun PodiumHorizontalCard(result: RaceResultResponse, displayPosition: Int, color
                         fontSize = if (isLeader) 14.sp else 12.sp,
                         fontWeight = FontWeight.Black,
                         letterSpacing = 1.sp,
-                        lineHeight = 16.sp
+                        lineHeight = if (isLeader) 15.sp else 14.sp
                     )
                     Text(
                         text = lastName,
@@ -438,24 +511,25 @@ fun PodiumHorizontalCard(result: RaceResultResponse, displayPosition: Int, color
                         fontStyle = FontStyle.Italic,
                         maxLines = 1,
                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                        lineHeight = 24.sp
+                        lineHeight = if (isLeader) 22.sp else 19.sp
                     )
                     Text(
                         text = teamName,
                         color = color,
                         fontSize = if (isLeader) 11.sp else 10.sp,
                         fontWeight = FontWeight.Medium,
-                        lineHeight = 13.sp
+                        lineHeight = 10.sp
                     )
                 }
                 
-                Column(horizontalAlignment = Alignment.End) {
+                Column(modifier = Modifier.fillMaxHeight(), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.Center) {
                     Text(
                         text = pointsOrStatus,
                         color = if (isDnf) Color(0xFFFF0033) else Color.White,
                         fontSize = if (isDnf) (if (isLeader) 26.sp else 20.sp) else (if (isLeader) 24.sp else 18.sp),
                         fontWeight = FontWeight.Black,
-                        fontStyle = FontStyle.Italic
+                        fontStyle = FontStyle.Italic,
+                        lineHeight = if (isLeader) 23.sp else 17.sp
                     )
                     if (bottomText.isNotEmpty()) {
                         Text(
@@ -463,7 +537,7 @@ fun PodiumHorizontalCard(result: RaceResultResponse, displayPosition: Int, color
                             color = if (isLeader && (bottomText == "POLEMAN" || bottomText == "FASTEST" || bottomText == "WINNER")) color else Color.White.copy(alpha = 0.5f),
                             fontSize = if (isLeader && (bottomText == "POLEMAN" || bottomText == "FASTEST" || bottomText == "WINNER")) 10.sp else 13.sp,
                             fontWeight = FontWeight.Black,
-                            modifier = Modifier.offset(y = (-4).dp),
+                            lineHeight = if (isLeader) 10.sp else 12.sp,
                             letterSpacing = if (isLeader && (bottomText == "POLEMAN" || bottomText == "FASTEST" || bottomText == "WINNER")) 1.sp else 0.sp
                         )
                     }

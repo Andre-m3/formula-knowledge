@@ -10,6 +10,7 @@ from .seed_driver_stats import seed_driver_stats
 from .seed_constructor_stats import seed_constructor_stats
 from .update_champs import fix_world_championships
 from .sync_session_results import sync_session_results
+from .sync_session_analysis import sync_session_analyses
 from app.rss_scraper import run_scraper
 from app.core.config import settings
 
@@ -62,6 +63,21 @@ def run_master_sync():
     print("\n--> 6. SINCRONIZZAZIONE FEED RSS...")
     run_scraper()
 
+    # 8. Archivio analisi post-sessione: cerca solo snapshot mancanti.
+    # Non è necessario per le classifiche; resta separato e non può alterarle.
+    print("\n--> 8. ARCHIVIO RACE/QUALI ANALYSIS...")
+    db: Session = SessionLocal()
+    try:
+        analysis_summary = sync_session_analyses(db, apply=True)
+    finally:
+        db.close()
+    print(
+        "    Analisi: "
+        f"{analysis_summary.sessions_written} sessioni scritte, "
+        f"{analysis_summary.sessions_unchanged} già archiviate, "
+        f"{analysis_summary.sessions_unavailable} non disponibili, "
+        f"{analysis_summary.sessions_rate_limited} rate limited."
+    )
     print("\n=======================================================")
     print("✅ SINCRONIZZAZIONE MASTER COMPLETATA CON SUCCESSO!")
     print("Il database ora riflette i risultati ufficiali e definitivi.")

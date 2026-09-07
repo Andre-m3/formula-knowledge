@@ -299,6 +299,95 @@ class ExternalApiService:
             print(f"Errore API Alpha risultati {session_type}: {e}")
             return []
     @classmethod
+    def get_alpha_session_laps(
+        cls,
+        round_number: int,
+        session_type: str,
+        year: int = settings.F1_SEASON,
+        *,
+        force_refresh: bool = False,
+    ) -> dict | None:
+        """Return the raw Alpha lap payload for one completed session.
+
+        The Alpha API uses opaque round identifiers. The seasonal schedule is
+        therefore resolved first and its laps_url is treated as authoritative.
+        Callers persist the returned payload; this method deliberately performs
+        no database writes and returns None on unavailable/invalid responses.
+        """
+        cache_key = f"alpha_laps_{year}_{round_number}_{session_type}"
+        cached = None if force_refresh else cls._get_cached(cache_key)
+        if cached is not None:
+            return cached
+
+        schedule_cache_key = f"alpha_schedule_{year}"
+        schedule_data = None if force_refresh else cls._get_cached(schedule_cache_key)
+
+        try:
+            if not schedule_data:
+                schedule_response = cls._request(
+                    f"https://api.jolpi.ca/f1/alpha/schedules/{year}/"
+                )
+                schedule_response.raise_for_status()
+                schedule_data = schedule_response.json()
+                cls._set_cache(schedule_cache_key, schedule_data)
+
+            events = schedule_data.get("data", {}).get("events", [])
+            event = next(
+                (
+                    item
+                    for item in events
+                    if item.get("round", {}).get("number") == round_number
+                ),
+                None,
+            )
+            if not event:
+                return None
+
+            session_code = {
+                "race": "R",
+                "quali": "Q",
+                "sprint_shootout": "SQ",
+            }.get(session_type)
+            if not session_code:
+                return None
+
+            schedule_entry = next(
+                (
+                    item
+                    for item in event.get("schedule", [])
+                    if item.get("code") == session_code
+                ),
+                None,
+            )
+            laps_url = schedule_entry.get("laps_url") if schedule_entry else None
+            if not laps_url:
+                return None
+
+            response = cls._request(laps_url)
+            response.raise_for_status()
+            payload = response.json().get("data")
+            if not isinstance(payload, dict) or not isinstance(payload.get("laps"), list):
+                return None
+            # Do not cache incomplete/empty timings: Alpha can expose the
+            # endpoint before FIA-derived lap data has been published.
+            if not payload["laps"]:
+                return None
+
+            normalized_payload = {
+                "session_code": session_code,
+                "laps": payload["laps"],
+                "drivers_by_id": payload.get("drivers_by_id", {}),
+                "teams_by_id": payload.get("teams_by_id", {}),
+                "sessions_by_id": payload.get("sessions_by_id", {}),
+            }
+            cls._set_cache(cache_key, normalized_payload)
+            return normalized_payload
+        except ExternalApiRateLimitError:
+            raise
+        except Exception as exc:
+            print(f"Errore API Alpha giri {session_type}: {exc}")
+            return None
+    @classmethod
     def get_session_results(
         cls,
         round_number: int,

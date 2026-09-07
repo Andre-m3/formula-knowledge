@@ -19,7 +19,7 @@ Questo documento raccoglie le decisioni architetturali e le attività consigliat
 - `rss_scraper.py` importa news da feed RSS e mantiene gli articoli più recenti.
 - Gli script di seed inizializzano anagrafiche, gare e statistiche storiche/stagionali.
 - `update_post_race.py` applica i risultati di un round tramite delta e `RoundProcessingLog`, così lo stesso round può essere ricalcolato dopo penalità o modifiche ufficiali.
-- `sync_session_results.py` riconcilia in modo idempotente la tabella canonica `RaceResult`; `sync_database.py` lo esegue prima del ricalcolo statistiche, del reset cache e delle news.
+- `sync_session_results.py` riconcilia in modo idempotente la tabella canonica `RaceResult`; `sync_session_analysis.py` archivia i giri completi post-sessione; `sync_database.py` esegue entrambi senza alterare i dati già validi.
 
 ### Frontend
 
@@ -29,7 +29,7 @@ Questo documento raccoglie le decisioni architetturali e le attività consigliat
 - Retrofit/Gson comunica con FastAPI tramite `F1ApiService`.
 - Un interceptor aggiunge l’header `X-API-Key` alle chiamate.
 - `FormulaRepository` coordina API, cache e database locale Room.
-- Room conserva classifiche, calendario, race week, risultati, news e statistiche di piloti/costruttori.
+- Room conserva classifiche, calendario, race week, risultati, Race/Quali Analysis, news e statistiche di piloti/costruttori.
 - I dati vengono esposti alla UI tramite `Flow`.
 - Il caricamento iniziale attende il refresh di race week e calendario prima di mostrare la Home, evitando il lampo di una race week Room obsoleta.
 - `refreshCalendar()` aggiorna il calendario completo; dopo che la Home è pronta, `prefetchCompletedSessionResults()` completa in background dettagli circuito e tutte le sessioni dei round passati/correnti, mentre i round futuri restano on-demand.
@@ -735,6 +735,13 @@ formula-knowledge/
 - In RaceResultsScreen Quali e Sprint Quali mantengono i tab e supportano anche swipe orizzontale: sinistra verso la fase successiva, destra verso quella precedente. Header e tab restano fissi; solo la classifica usa la transizione direzionale con fade di Standings. Lo stato iniziale è Q3/SQ3 e viene correttamente reinizializzato cambiando tipo sessione.
 - Nessuna migration Room o Alembic richiesta. Verifiche completate: compilazione Python, suite backend 8/8, risposta Alpha SQ reale, persistenza SQ DB e compilazione Android offline (`BUILD SUCCESSFUL`).
 - Test manuale da eseguire su dispositivo: riavviare Uvicorn, avviare l'app con rete disponibile e verificare che una Sprint Quali storica mostri dati e swipe; dopo il prefetch, riaprire una FP/Quali/Race già caricata e confermare assenza di nuova richiesta risultati nel log Uvicorn.
+## 2026-09-07 — UX podio Race Results e backlog Race Analysis
+
+- Restyling delle card podio Race/Quali: rimosso il badge numerico circolare; nome, cognome e team iniziano ora a sinistra della card; tutte le posizioni usano la stessa palette argento; tipografia più compatta; sigla P1/P2/P3 di sfondo alzata e ridotta di circa il 5%.
+- Rifinita la gerarchia di `RaceResults`: in Quali e Sprint Quali i tab Q1/Q2/Q3 (o SQ1/SQ2/SQ3) sono a sinistra e l'azione compatta `QUALI ANALYSIS` a destra sulla stessa riga, con stessa altezza del selettore, freccia e spaziatura minima garantita; eliminato il prefisso "VIEW". L'azione Race mantiene la versione estesa.
+- Nelle card evidenziate, il blocco tempo + gap/stato è ora centrato verticalmente e più compatto; ripristinate le dimensioni tipografiche originali, la palette oro/argento/bronzo dei primi tre e una spaziatura verticale proporzionata di 6dp. Compilazione Kotlin offline verificata con `:app:compileDebugKotlin` (`BUILD SUCCESSFUL`).
+- ~~Race Analysis post-sessione~~ completata: i dati Alpha vengono memorizzati nel backend, l'app verifica prima la disponibilità e scarica il payload una sola volta in Room; il telefono non interroga mai Jolpica direttamente.
+- Pit-stop timeline rinviata: l'attuale durata rappresenta il tempo complessivo in pit lane e non il solo cambio gomme. Rivalutare soltanto con una fonte che esponga compound/stint e durata fermo vettura affidabile.
 ## 2026-09-06 — Risultati canonici e sincronizzazione post-sessione
 
 - Aggiunto `backend/scripts/sync_session_results.py`: in anteprima per default, confronta tutte le sessioni previste dei round conclusi e del weekend corrente con `RaceResult`. Il weekend corrente è determinato da `CalendarService`, così le sessioni di venerdì/sabato vengono incluse anche prima della gara di domenica. Lo script valida l'intero payload e in `--apply` sostituisce in una transazione solo le coppie round/sessione differenti. Race, Quali, Sprint, Sprint Qualifying e FP sono quindi dati canonici del database backend; il recupero lazy dell'API rimane soltanto un fallback.
@@ -746,3 +753,12 @@ formula-knowledge/
 - Verifiche completate: compilazione Python, suite backend 12/12 (idempotenza, variazione post-sessione, risposta vuota, rate limit, replace ORM e selezione del weekend corrente prima della domenica), query integrità SQLite e compilazione Android offline riuscita.
 - Corretto il 404 `season_stats` di Tsunoda: `seed_season_stats` inizializza a zero una riga stagionale per ogni `DRIVER_IDS` gestito prima di leggere i risultati. Applicato il fix al database runtime: `/api/v1/drivers/tsunoda/season_stats` restituisce 200, `total_races=0`, `best_race_result=N/A`; il test SQLite in memoria conferma che il helper è idempotente.
 - Audit cache al riavvio: le scadenze generali di 30 minuti sono mappe in memoria, quindi una chiusura completa azzera i timestamp e rinnova richieste online. Non è una perdita Room: i `Flow` mantengono i dati locali/offline e i risultati finali delle sessioni non richiamano il backend. Prima di adottare timestamp persistenti per risorsa e stale-while-revalidate, discutere esplicitamente le differenze rispetto alla policy network-first attuale: freschezza percepita, ordine UI/cache/rete, TTL per ciascuna risorsa, refresh manuale, gestione errori e invalidazione post-GP.
+## 2026-09-07 — Race / Quali Analysis persistita
+
+- Aggiunte le tabelle backend `session_analyses` e `session_laps`, con migration Alembic `d6a4e12f9b3c`; creata una copia preventiva `formula_knowledge.before-session-analysis-20260907.db` prima dell'upgrade. La migration è additiva e non modifica `RaceResult` o dati preesistenti.
+- `sync_session_analysis.py` elabora soltanto Race, Quali e Sprint Quali che possiedono già risultati canonici; convalida l'intero payload Alpha prima di un replace atomico, salta gli archivi esistenti e non cancella nulla in caso di risposta vuota, non valida o rate-limited. `--refresh` è limitato a una correzione esplicita della fonte.
+- Aggiunte API protette da API key: disponibilità leggera e snapshot completo. Sono local-only: nessuna route Analysis esegue un fallback Jolpica.
+- Applicato il backfill fino al round 13: 31 snapshot completi e 20.271 giri (Race, Quali e cinque Sprint Quali). Verificati endpoint reali: round 13 Race `available=true`, 1.052 giri, fase `R`; Quali `available=true`, 275 giri, fasi `Q1/Q2/Q3`.
+- Room 21→22 aggiunge la cache Analysis non distruttiva. RaceResults mostra l'azione disabilitata finché l'archivio non è disponibile; la nuova schermata gestisce fasi Q/SQ, pilota, grafico della posizione in gara o del passo/giro, e mantiene i dati offline dopo il primo download.
+- Verifiche: 18 test backend verdi (persistenza, idempotenza, payload assente, API HTTP e regressioni esistenti), `alembic current/check` a head e compilazione Android offline riuscita.
+- Pit-stop timeline resta rinviata: i dati Alpha disponibili indicano il tempo complessivo in pit lane, non la sola durata del cambio gomme.
