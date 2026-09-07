@@ -9,6 +9,7 @@ from .seed_season_stats import seed_season
 from .seed_driver_stats import seed_driver_stats
 from .seed_constructor_stats import seed_constructor_stats
 from .update_champs import fix_world_championships
+from .sync_session_results import sync_session_results
 from app.rss_scraper import run_scraper
 from app.core.config import settings
 
@@ -20,30 +21,45 @@ def run_master_sync():
     print("Ricalcola tutto da zero, gestendo in automatico qualsiasi")
     print("squalifica o penalità FIA avvenuta ore o giorni dopo.\n")
 
-    # 1. Ricalcolo Statistiche Stagione (Cancella e ricrea l'anno in corso)
-    print(f"--> 1. RICALCOLO STAGIONE {settings.F1_SEASON}...")
-    seed_season()
+    # 1. Risultati canonici: le sessioni complete vengono riconciliate
+    # prima delle statistiche. Risposte mancanti/non valide non cancellano nulla.
+    print(f"--> 1. SINCRONIZZAZIONE RISULTATI SESSIONE {settings.F1_SEASON}...")
+    db: Session = SessionLocal()
+    try:
+        session_summary = sync_session_results(db, apply=True)
+    finally:
+        db.close()
+    print(
+        "    Risultati: "
+        f"{session_summary.sessions_written} sessioni scritte, "
+        f"{session_summary.sessions_unchanged} invariate, "
+        f"{session_summary.sessions_unavailable} non disponibili, "
+        f"{session_summary.sessions_rate_limited} rate limited."
+    )
 
-    # 2. Ricalcolo Carriera Piloti (Sostituisce i dati esistenti)
-    print("\n--> 2. RICALCOLO CARRIERA PILOTI...")
+    # 2. Ricalcolo Statistiche Stagione (Cancella e ricrea l'anno in corso)
+    print(f"\n--> 2. RICALCOLO STAGIONE {settings.F1_SEASON}...")
+    seed_season()
+    # 3. Ricalcolo Carriera Piloti (Sostituisce i dati esistenti)
+    print("\n--> 3. RICALCOLO CARRIERA PILOTI...")
     seed_driver_stats()
     # Fissiamo i mondiali (per evitare il conteggio della stagione corrente non finita)
     fix_world_championships()
 
-    # 3. Ricalcolo Carriera Costruttori
-    print("\n--> 3. RICALCOLO STORICO COSTRUTTORI...")
+    # 4. Ricalcolo Carriera Costruttori
+    print("\n--> 4. RICALCOLO STORICO COSTRUTTORI...")
     seed_constructor_stats()
 
-    # 4. Svuotamento Cache Classifiche (Per forzare l'app a prendere i Punti freschi)
-    print("\n--> 4. RESET CACHE PUNTI E CLASSIFICHE...")
+    # 5. Svuotamento Cache Classifiche (Per forzare l'app a prendere i Punti freschi)
+    print("\n--> 5. RESET CACHE PUNTI E CLASSIFICHE...")
     db: Session = SessionLocal()
     db.query(DriverStandingCache).delete()
     db.query(ConstructorStandingCache).delete()
     db.commit()
     db.close()
     
-    # 5. Sincronizzazione Feed RSS (Per aggiornare le notizie post-gara)
-    print("\n--> 5. SINCRONIZZAZIONE FEED RSS...")
+    # 6. Sincronizzazione Feed RSS (Per aggiornare le notizie post-gara)
+    print("\n--> 6. SINCRONIZZAZIONE FEED RSS...")
     run_scraper()
 
     print("\n=======================================================")
