@@ -1,7 +1,7 @@
 from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
-    PROJECT_NAME: str = "Formula Knowledge"
+    PROJECT_NAME: str = "GPHub"
     # Stagione sportiva usata dai servizi e dagli script operativi.
     # Può essere sovrascritta dall'ambiente senza modificare il codice.
     F1_SEASON: int = 2026

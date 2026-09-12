@@ -20,7 +20,7 @@ android {
         // Definiamo l'URL del backend per le diverse build
         // buildConfigField("String", "API_BASE_URL", "\"http://10.0.2.2:8000/\"")
         // Per testare su un dispositivo fisico, sostituisci con il tuo IP locale:
-        buildConfigField("String", "API_BASE_URL", "\"http://192.168.1.6:8000/\"")
+        buildConfigField("String", "API_BASE_URL", "\"http://192.168.1.5:8000/\"")
         // La stessa chiave impostata nel Backend Python
         buildConfigField("String", "API_SECRET_KEY", "\"super_secret_formula_knowledge_key_2026!\"")
 
@@ -72,6 +72,7 @@ dependencies {
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
     implementation(libs.androidx.material.icons.extended)
+    implementation(libs.androidx.navigation.compose)
     
     // Retrofit & OkHttp
     implementation(libs.retrofit)

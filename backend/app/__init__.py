@@ -1,4 +1,4 @@
-"""Formula Knowledge application package."""
+"""GPHub application package."""
 
 import truststore
 

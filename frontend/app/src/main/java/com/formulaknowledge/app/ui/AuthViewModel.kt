@@ -18,10 +18,12 @@ import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicBoolean
 
 data class AuthUiState(
     val isLoggedIn: Boolean = false,
@@ -39,6 +41,7 @@ class AuthViewModel(
 
     private val _uiState = MutableStateFlow(AuthUiState())
     val uiState: StateFlow<AuthUiState> = _uiState
+    private val googleSignInInProgress = AtomicBoolean(false)
 
     init {
         viewModelScope.launch {
@@ -62,7 +65,7 @@ class AuthViewModel(
                 try {
                     val tokenResult = currentUser.getIdToken(true).await()
                     val token = tokenResult.token ?: return@launch
-                    _uiState.value = _uiState.value.copy(isLoggedIn = true, isLoading = true)
+                    _uiState.value = _uiState.value.copy(isLoading = true)
                     fetchProfile(token)
                 } catch (e: Exception) {
                     logout()
@@ -88,7 +91,7 @@ class AuthViewModel(
                     auth.signInWithEmailAndPassword(email, pass).await()
                 }
                 val token = authResult.user?.getIdToken(true)?.await()?.token ?: throw Exception("Token nullo")
-                _uiState.value = _uiState.value.copy(isLoggedIn = true, isLoading = false)
+                _uiState.value = _uiState.value.copy(isLoading = true)
                 fetchProfile(token)
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(isLoading = false, errorMessage = e.localizedMessage ?: "Errore di autenticazione")
@@ -96,41 +99,50 @@ class AuthViewModel(
         }
     }
 
-    fun signInWithGoogle(context: Context) {
+    fun signInWithGoogle(context: Context, completeOnboardingOnSuccess: Boolean = false) {
+        if (_uiState.value.isLoading || !googleSignInInProgress.compareAndSet(false, true)) {
+            Log.w("AuthViewModel", "Tentativo Google ignorato: autenticazione già in corso")
+            return
+        }
+
+        _uiState.value = _uiState.value.copy(isLoading = true, errorMessage = null)
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isLoading = true, errorMessage = null)
             try {
                 val credentialManager = CredentialManager.create(context)
                 val webClientId = context.getString(context.resources.getIdentifier("default_web_client_id", "string", context.packageName))
-                
                 val googleIdOption = GetGoogleIdOption.Builder()
                     .setFilterByAuthorizedAccounts(false)
                     .setServerClientId(webClientId)
                     .setAutoSelectEnabled(true)
                     .build()
-                    
                 val request = GetCredentialRequest.Builder().addCredentialOption(googleIdOption).build()
                 val result = credentialManager.getCredential(context, request)
-                
-                if (result.credential is CustomCredential && result.credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
-                    val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(result.credential.data)
-                    val firebaseCredential = GoogleAuthProvider.getCredential(googleIdTokenCredential.idToken, null)
-                    
-                    val authResult = FirebaseAuth.getInstance().signInWithCredential(firebaseCredential).await()
-                    val firebaseToken = authResult.user?.getIdToken(true)?.await()?.token ?: throw Exception("Token Firebase nullo")
-                    _uiState.value = _uiState.value.copy(isLoggedIn = true, isLoading = false)
-                    fetchProfile(firebaseToken)
+                if (result.credential !is CustomCredential || result.credential.type != GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
+                    throw IllegalStateException("Credenziale Google non valida")
                 }
+
+                val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(result.credential.data)
+                val firebaseCredential = GoogleAuthProvider.getCredential(googleIdTokenCredential.idToken, null)
+                val authResult = FirebaseAuth.getInstance().signInWithCredential(firebaseCredential).await()
+                val firebaseToken = authResult.user?.getIdToken(true)?.await()?.token ?: throw Exception("Token Firebase nullo")
+                fetchProfile(firebaseToken, completeOnboardingOnSuccess)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(isLoading = false, errorMessage = "Accesso Google annullato o non riuscito.")
+            } finally {
+                googleSignInInProgress.set(false)
             }
         }
     }
-
-    private suspend fun fetchProfile(token: String) {
+    private suspend fun fetchProfile(token: String, completeOnboardingOnSuccess: Boolean = false) {
         try {
             val profile = apiService.getMyProfile("Bearer $token")
-            _uiState.value = _uiState.value.copy(userProfile = profile, isLoading = false)
+            if (completeOnboardingOnSuccess) {
+                // La landing termina soltanto dopo Firebase + backend validi.
+                tokenManager.setHasSeenOnboarding(true)
+            }
+            _uiState.value = _uiState.value.copy(isLoggedIn = true, userProfile = profile, isLoading = false, errorMessage = null)
         } catch (e: Exception) {
             Log.e("AuthViewModel", "Errore nel caricamento del profilo", e)
             if (e is HttpException && e.code() == 401) {

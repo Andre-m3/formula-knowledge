@@ -1,4 +1,4 @@
-# Formula Knowledge
+# GPHub
 
 Applicazione Android nativa per lo studio e l'analisi della Formula 1.
 
@@ -22,7 +22,8 @@ formula-knowledge/
 │   │       ├── 9f34e5026ddc_baseline_schema.py
 │   │       ├── e71272d84bd5_add_tsunoda_to_driver_roster.py
 │       ├── b84c1e8d4a72_add_session_participants.py
-│       └── d6a4e12f9b3c_add_session_analysis_cache.py
+│       ├── d6a4e12f9b3c_add_session_analysis_cache.py
+│       └── 08fa42c32085_remove_legacy_round_processing_log.py
 │   ├── alembic.ini                  # Configurazione migration schema
 │   ├── app/
 │   │   ├── api/
@@ -59,11 +60,9 @@ formula-knowledge/
 │   │   ├── seed_driver_stats.py
 │   │   ├── seed_season_stats.py
 │   │   ├── sync_database.py
-│   │   ├── update_champs.py
-│   │   └── update_post_race.py
+│   │   └── update_champs.py
 │   ├── tests/
-│   │   ├── data/                         # Fixture JSON dei test
-│   │   └── simulate_and_test.py
+│   │   └── data/                         # Fixture JSON dei test
 │   ├── data/
 │   │   └── formula_knowledge.db
 │   ├── requirements.txt
@@ -79,6 +78,8 @@ formula-knowledge/
 │   │   │   ├── SessionAnalysisResponse.kt
 │   │   │   │   ├── TokenManager.kt
 │   │   │   │   └── response/data classes
+│   │   │   ├── navigation/
+│   │   │   │   └── AppRoute.kt             # Contratto route Navigation Compose
 │   │   │   ├── ui/
 │   │   │   │   ├── UpdatesScreen.kt
 │   │   │   │   ├── AuthViewModel.kt
@@ -105,6 +106,17 @@ formula-knowledge/
 └── readme.md
 ```
 
+## Navigazione Android
+
+La UI usa Navigation Compose `2.7.7`. `UpdatesScreen` resta il root container per bootstrap, onboarding e dati iniziali, mentre `NavHost` gestisce tutte le destinazioni e il back stack. `navigation/AppRoute.kt` è la fonte di verità per pattern, URI encoding e validazione degli argomenti.
+
+La bottom bar conserva il design corrente e, per le cinque destinazioni top-level, usa `popUpTo`, `saveState`, `restoreState` e `launchSingleTop`: evitare duplicati non richiede più variabili `currentScreen` o `previousScreen*` manuali. Un tap sull’icona della sezione attiva rimuove solo le sue sottoschermate e riporta alla root della sezione; il Back di sistema continua invece a rimuovere una sola destinazione per volta. Le pagine dettaglio ricevono nella route soltanto identificativi piccoli (round, sessione, GP, pilota, costruttore e indice news); payload transitori di Race Sessions e Team Update restano in memoria fino a una fase successiva con ID persistibili o `SavedStateHandle`.
+
+Deep link e ripristino dopo process death per questi due payload non sono ancora supportati. Per questo la Fase 6 richiede ancora test manuali su dispositivo prima della chiusura definitiva.
+
+### System bar edge-to-edge
+
+`MainActivity` abilita edge-to-edge con status bar e navigation bar trasparenti, icone di sistema chiare e contrast enforcement disabilitato su Android 10+. `UpdatesScreen` disegna lo sfondo dell'app sotto entrambe le aree di sistema: `NavHost` riceve gli inset superiore/inferiore per mantenere contenuti e controlli nella safe area, mentre fade verticali garantiscono contrasto con icone, bandiere e gesture bar. La floating bottom bar applica inoltre il solo inset inferiore, così resta sopra la gesture bar senza interrompere il gradiente sottostante.
 ## Backend
 
 ### Avvio e configurazione
@@ -275,7 +287,7 @@ Le tabelle principali sono:
 - `constructor_career_stats`;
 - `driver_season_stats`;
 - `constructor_season_stats`;
-- `round_processing_logs`;
+
 - `news_articles`;
 - `users`.
 
@@ -284,7 +296,7 @@ I tester che partecipano soltanto alle prove libere vivono in session_participan
 
 ### Migrazioni dello schema
 
-La configurazione della connessione e letta da `app/core/config.py`. La revisione baseline `9f34e5026ddc` descrive lo schema SQLAlchemy canonico; il database runtime è attualmente registrato alla revisione `d6a4e12f9b3c` tramite `alembic_version`.
+La configurazione della connessione e letta da `app/core/config.py`. La revisione baseline `9f34e5026ddc` descrive lo schema SQLAlchemy canonico; il database runtime è attualmente registrato alla revisione `08fa42c32085` tramite `alembic_version`. Questa revisione rimuove la tabella legacy vuota `round_processing_logs`, sostituita dal sync canonico e idempotente dei risultati.
 
 Le migration modificano lo schema in modo versionato; non sostituiscono i seed dei dati. Prima di ogni modifica strutturale si esegue un backup e si revisiona manualmente il file generato con autogenerate.
 
@@ -293,7 +305,7 @@ Le migration modificano lo schema in modo versionato; non sostituiscono i seed d
 Il frontend usa Kotlin, Jetpack Compose, Material 3, Retrofit, OkHttp, Room, DataStore, Coil e Firebase.
 
 Room migra dalla versione 20 alla 21 aggiungendo il flag `is_session_only` alla cache risultati e dalla 21 alla 22 aggiungendo `session_analyses`/`session_laps`. Entrambe le migration sono additive e non cancellano cache esistenti. La cache Analysis registra prima la sola disponibilità e scarica i giri completi una sola volta al primo accesso alla schermata, mantenendoli poi offline.
-FirebaseAuth gestisce la sessione utente. La UI espone attualmente solo Google Sign-In; il codice email/password resta predisposto ma disabilitato dal flag `EMAIL_PASSWORD_AUTH_ENABLED`. `TokenManager` conserva solo lo stato onboarding e rimuove la chiave token legacy, senza persistire nuovi ID token.
+FirebaseAuth gestisce la sessione utente. La UI espone attualmente solo Google Sign-In; il codice email/password resta predisposto ma disabilitato dal flag `EMAIL_PASSWORD_AUTH_ENABLED`. `UpdatesScreen` possiede un solo `AuthViewModel`, condiviso con dashboard Personal e route Profile, così login e profilo leggono lo stesso stato anche al primo avvio. Il Google Sign-In è single-flight: un guard atomico nel ViewModel ignora tentativi concorrenti; i pulsanti restano visivamente bianchi durante l’operazione, ma non accettano ulteriori tocchi. Lo stato utente autenticato viene esposto soltanto dopo la risposta valida di `/api/v1/auth/me`; la route Profile torna alla dashboard se il profilo non fosse disponibile. `TokenManager` conserva solo lo stato onboarding e rimuove la chiave token legacy, senza persistire nuovi ID token.
 
 ### Flusso dati
 
@@ -364,13 +376,13 @@ python -m alembic revision --autogenerate -m "descrizione"
 ~~~
 
 Il file generato deve essere sempre revisionato e testato prima di applicarlo. downgrade è riservato a copie o procedure deliberate con backup. Non usare scripts.seed per aggiornare lo schema: il seed è distruttivo e gestisce i dati iniziali.
-### Aggiornamento di un singolo round
+### Riconciliazione mirata di un singolo round
 
 ```powershell
-python -m scripts.update_post_race <ROUND>
+python -m scripts.sync_session_results --apply --round <ROUND>
 ```
 
-Lo script scarica gara, qualifica e sprint, applica i delta alle statistiche e salva un `RoundProcessingLog` per permettere il rollback/ricalcolo dello stesso round.
+Il comando confronta e sostituisce soltanto i risultati canonici completi e differenti del round indicato. Non modifica statistiche, classifiche o news: dopo una correzione ufficiale, per ricalcolare anche tali dati usare il Master sync.
 
 ### Master sync
 
@@ -463,10 +475,10 @@ python -m scripts.seed_constructor_stats
 Dalla cartella `backend`:
 
 ```powershell
-python -m unittest discover -s tests -p "simulate_and_test.py"
+python -m unittest discover -s tests -v
 ```
 
-I test usano dati JSON locali e un database sandbox separato.
+La suite usa fixture JSON locali e database temporanei isolati.
 
 ## Comandi Android
 
@@ -483,29 +495,25 @@ L'app può poi essere avviata da Android Studio su dispositivo fisico o emulator
 
 ### Gara appena conclusa
 
-Dopo che Jolpica ha pubblicato i risultati ufficiali o provvisori, aggiornare il round interessato:
-
-```powershell
-python -m scripts.update_post_race <ROUND>
-```
-
-Il comando scarica gara, qualifiche e sprint, applica le statistiche e svuota le cache delle classifiche.
-
-### Controllo penalità e squalifiche
-
-Durante le ore successive è possibile ripetere lo stesso comando. Il `RoundProcessingLog` esegue il rollback dei delta precedenti prima di applicare i dati nuovi.
-
-### Penalità tardive
-
-Per una correzione relativa a un singolo round è possibile ripetere `update_post_race`. Per un riallineamento più prudente dell'intera stagione usare:
+Dopo che Jolpica ha pubblicato risultati ufficiali o provvisori, fermare Uvicorn e usare il comando ordinario:
 
 ```powershell
 python -m scripts.sync_database
 ```
 
+Il sync confronta le sessioni complete disponibili, sostituisce soltanto quelle differenti, ricalcola statistiche e campionati, aggiorna la cache classifiche, news e gli archivi Analysis mancanti.
+
+### Controllo penalità e squalifiche
+
+Dopo una rettifica FIA, rieseguire `sync_database`. Non esistono più delta incrementali né rollback manuali: il database viene riconciliato dai risultati completi correnti e le statistiche vengono rigenerate in modo coerente.
+
+### Penalità tardive
+
+Per una diagnosi o una sola sessione usare prima `sync_session_results --apply --round <ROUND>`; per rendere coerenti anche statistiche, classifiche e Analysis completare sempre con `sync_database`.
+
 ### Sprint race
 
-Lo stesso aggiornamento del round può essere eseguito dopo la sprint e nuovamente dopo la gara domenicale. I dati sprint e gara vengono ricalcolati nel pacchetto del round.
+Lo stesso Master sync può essere eseguito dopo la Sprint e poi dopo la gara: il calendario identifica il weekend corrente e include soltanto le sessioni effettivamente disponibili.
 
 ### Nuova stagione o reset completo
 
@@ -515,8 +523,8 @@ Usare `scripts.seed` solo per un setup iniziale o un reset deliberato, seguito d
 
 Su un server Linux sarà possibile configurare:
 
-- `update_post_race <ROUND>` a intervalli ravvicinati durante il weekend di gara;
-- `sync_database` periodicamente, ad esempio dopo la finestra delle penalità tardive;
+- `sync_database` dopo le sessioni concluse e dopo eventuali comunicati FIA;
+- una riconciliazione mirata con `sync_session_results --apply --round <ROUND>` solo per diagnosi;
 - backup del database prima delle procedure distruttive o di riallineamento.
 
 ## Avvertenze operative
@@ -535,7 +543,7 @@ Su un server Linux sarà possibile configurare:
 - consolidare o archiviare definitivamente i vecchi modelli;
 - migrare SQLite a PostgreSQL;
 - aggiungere endpoint `/health`, logging strutturato e rate limiting prima del deployment pubblico;
-- sostituire la navigazione manuale con Navigation Compose;
+- completare i deep link e il ripristino post-process-death dei contesti Race Sessions/Team Update;
 - migliorare gli stati di errore e sincronizzazione offline;
 - aggiungere autorizzazioni backend per AI custom, notifiche, live timing e widget;
 - localizzare l'intera app per inglese, italiano, francese, spagnolo e tedesco tramite risorse Android;

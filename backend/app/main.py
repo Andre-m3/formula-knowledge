@@ -5,9 +5,10 @@ from fastapi import FastAPI
 from firebase_admin import credentials
 
 from .api.endpoints import router as api_router
+from .core.config import settings
 
 
-app = FastAPI(title="Formula Knowledge API")
+app = FastAPI(title=f"{settings.PROJECT_NAME} API")
 
 
 # --- FIREBASE SETUP ---

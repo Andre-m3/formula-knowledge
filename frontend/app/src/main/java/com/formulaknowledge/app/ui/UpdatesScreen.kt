@@ -1,7 +1,6 @@
 package com.formulaknowledge.app.ui
 
 import android.util.Log
-import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
@@ -25,13 +24,16 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -54,17 +56,58 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.NavType
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import android.net.Uri
 import androidx.browser.customtabs.CustomTabsIntent
 import coil.compose.AsyncImage
 import kotlin.math.abs
 import kotlin.math.min
 import kotlin.math.pow
+import com.formulaknowledge.app.R
 import com.formulaknowledge.app.data.*
+import com.formulaknowledge.app.navigation.AppRoute
 import com.formulaknowledge.app.utils.F1Utils
 import kotlinx.coroutines.launch
 
-enum class AppScreen { HOME, CALENDAR, PERSONAL, UPDATES_LIST, TEAM_DETAIL, WEATHER_DETAIL, RESULTS, STANDINGS, DRIVER_DETAIL, CONSTRUCTOR_DETAIL, RACE_SESSIONS, CIRCUIT_DETAIL, HEAD_TO_HEAD, HEAD_TO_HEAD_CONSTRUCTOR, NEWS, PROFILE, SESSION_ANALYSIS }
+private enum class HomeNavigation { RACE_SESSIONS, WEATHER, UPDATES }
+
+private data class RaceSessionsNavigationState(
+    val isSprint: Boolean,
+    val gpName: String,
+    val country: String,
+    val sessions: SessionTimes?,
+    val gpStatus: String,
+    val dates: List<String>,
+)
+
+private val topLevelRoutePatterns = setOf(
+    AppRoute.Home.pattern,
+    AppRoute.Calendar.pattern,
+    AppRoute.Standings.pattern,
+    AppRoute.News.pattern,
+    AppRoute.Personal.pattern,
+)
+
+private val bottomBarVisibleRoutePatterns = setOf(
+    AppRoute.Home.pattern,
+    AppRoute.Calendar.pattern,
+    AppRoute.Personal.pattern,
+    AppRoute.News.pattern,
+    AppRoute.Weather.pattern,
+    AppRoute.Results.pattern,
+    AppRoute.Standings.pattern,
+    AppRoute.DriverDetail.pattern,
+    AppRoute.ConstructorDetail.pattern,
+    AppRoute.RaceSessions.pattern,
+    AppRoute.CircuitDetail.pattern,
+    AppRoute.SessionAnalysis.pattern,
+)
 
 val AppBackgroundGradientColor = Color(0xFF0B0E14)
 
@@ -90,11 +133,9 @@ fun UpdatesScreen() {
 
     if (!authUiState.hasSeenOnboarding) {
         OnboardingScreen(
+            isGoogleSignInInProgress = authUiState.isLoading,
             onSkip = { authViewModel.completeOnboarding() },
-            onGoogleSignIn = { 
-                authViewModel.completeOnboarding() 
-                authViewModel.signInWithGoogle(context) 
-            }
+            onGoogleSignIn = { authViewModel.signInWithGoogle(context, completeOnboardingOnSuccess = true) }
         )
         return
     }
@@ -115,67 +156,68 @@ fun UpdatesScreen() {
     }
 
     var updatesWrapper by remember { mutableStateOf<TeamUpdatesWrapper?>(null) }
-
     var isLoadingUpdates by remember { mutableStateOf(false) }
-    var currentScreen by remember { mutableStateOf(AppScreen.HOME) }
     var selectedTeam by remember { mutableStateOf<TeamUpdatesResponse?>(null) }
-    var selectedRound by remember { mutableIntStateOf(0) }
-    var selectedGpName by remember { mutableStateOf("") }
-    var selectedDriverName by remember { mutableStateOf("") }
-    var selectedCircuitRound by remember { mutableIntStateOf(0) }
-    var selectedConstructorId by remember { mutableStateOf("") }
-    var previousScreenForStats by remember { mutableStateOf(AppScreen.HOME) }
-    var selectedSessionType by remember { mutableStateOf("race") } // "race", "sprint", "quali", "sprint_shootout"
-    var selectedH2HDriverId by remember { mutableStateOf("") }
-    var selectedH2HConstructorId by remember { mutableStateOf("") }
-    var standingsSelectedTab by remember { mutableStateOf("Drivers") }
-
-    var selectedSprintForSessions by remember { mutableStateOf(false) }
-    var selectedRoundForSessions by remember { mutableIntStateOf(0) }
-    var selectedGpForSessions by remember { mutableStateOf("") }
-    var selectedCountryForSessions by remember { mutableStateOf("") }
-    var selectedSessions by remember { mutableStateOf<SessionTimes?>(null) }
-    var selectedGpStatusForSessions by remember { mutableStateOf("future") }
-    var selectedDatesForSessions by remember { mutableStateOf<List<String>>(emptyList()) }
-    var previousScreenForSessions by remember { mutableStateOf(AppScreen.HOME) }
-    var selectedNewsIndex by remember { mutableIntStateOf(0) }
+    var raceSessionsState by remember { mutableStateOf<RaceSessionsNavigationState?>(null) }
+    var standingsSelectedTab by rememberSaveable { mutableStateOf("Drivers") }
     var isRefreshingNews by remember { mutableStateOf(false) }
     var isInitialDataReady by remember { mutableStateOf(false) }
-    val coroutineScope = rememberCoroutineScope()
-
     var showNotReadyDialog by remember { mutableStateOf(false) }
-
     var isBottomBarVisible by remember { mutableStateOf(true) }
+    var activeTopLevelRoute by rememberSaveable { mutableStateOf(AppRoute.Home.pattern) }
+
+    val coroutineScope = rememberCoroutineScope()
+    val navController = rememberNavController()
+    val navBackStackEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = navBackStackEntry?.destination?.route ?: AppRoute.Home.pattern
+    val navigateToTopLevel: (String, String) -> Unit = { destination, topLevelRoute ->
+        activeTopLevelRoute = topLevelRoute
+        navController.navigate(destination) {
+            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+            launchSingleTop = true
+            restoreState = true
+        }
+    }
+
+    val navigateFromBottomBar: (String, String) -> Unit = { destination, topLevelRoute ->
+        val previousTopLevelRoute = activeTopLevelRoute
+        val isCurrentSection = previousTopLevelRoute == topLevelRoute
+        activeTopLevelRoute = topLevelRoute
+
+        if (isCurrentSection) {
+            navController.popBackStack(topLevelRoute, inclusive = false)
+        } else {
+            // Abbandonando una sezione, conserviamo solo la sua root: in questo
+            // modo restoreState ripristina scroll/stato della tab, non un dettaglio.
+            if (previousTopLevelRoute in topLevelRoutePatterns) {
+                navController.popBackStack(previousTopLevelRoute, inclusive = false)
+            }
+            navController.navigate(destination) {
+                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                launchSingleTop = true
+                restoreState = true
+            }
+        }
+    }
+
     val nestedScrollConnection = remember {
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                // Se l'utente sta scorrendo verso il basso (dito verso l'alto), nascondiamo la barra.
-                if (available.y < -3) {
-                    isBottomBarVisible = false
-                }
-                // Se l'utente sta scorrendo verso l'alto (dito verso il basso), mostriamo la barra.
-                // La soglia bassa (5) risolve il bug dello scroll lento.
-                if (available.y > 5) {
-                    isBottomBarVisible = true
-                }
+                if (available.y < -3) isBottomBarVisible = false
+                if (available.y > 5) isBottomBarVisible = true
                 return Offset.Zero
             }
-            
             override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
-                // Se l'utente tenta di scorrere verso il basso ma ha raggiunto la fine della pagina,
-                // il delta "available" sarà negativo. In questo caso, mostriamo la barra.
-                // Questo risolve il bug per cui la barra non riappariva arrivati in fondo.
-                if (available.y < 0) { isBottomBarVisible = true }
+                if (available.y < 0) isBottomBarVisible = true
                 return Offset.Zero
             }
         }
     }
 
-    LaunchedEffect(currentScreen) {
+    LaunchedEffect(currentRoute) {
         isBottomBarVisible = true
-        
-        // Fetch "Lazy" degli Updates solo quando l'utente prova ad aprire la schermata!
-        if (currentScreen == AppScreen.UPDATES_LIST && updatesWrapper == null) {
+        if (currentRoute in topLevelRoutePatterns) activeTopLevelRoute = currentRoute
+        if (currentRoute == AppRoute.Updates.pattern && updatesWrapper == null) {
             try {
                 isLoadingUpdates = true
                 Log.d("API_CALL", "Requesting Car Updates on demand...")
@@ -183,7 +225,7 @@ fun UpdatesScreen() {
                 updatesWrapper = wrapper
                 if (wrapper.status == "not_ready") {
                     showNotReadyDialog = true
-                    currentScreen = AppScreen.HOME // Torna alla home e mostra l'avviso
+                    navigateToTopLevel(AppRoute.Home.pattern, AppRoute.Home.pattern)
                 }
             } catch (e: Exception) {
                 Log.e("API_ERROR", "Error fetching updates", e)
@@ -194,247 +236,232 @@ fun UpdatesScreen() {
     }
 
     val bottomBarOffset by animateDpAsState(
-        targetValue = if (isBottomBarVisible || currentScreen == AppScreen.NEWS) 0.dp else 120.dp,
+        targetValue = if (isBottomBarVisible || currentRoute == AppRoute.News.pattern) 0.dp else 120.dp,
         animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
-        label = "BottomBarOffset"
+        label = "BottomBarOffset",
     )
-
-    BackHandler(enabled = currentScreen != AppScreen.HOME) {
-        when (currentScreen) {
-            AppScreen.CALENDAR, AppScreen.STANDINGS, AppScreen.PERSONAL, AppScreen.UPDATES_LIST, AppScreen.WEATHER_DETAIL, AppScreen.NEWS -> currentScreen = AppScreen.HOME
-            AppScreen.TEAM_DETAIL -> currentScreen = AppScreen.UPDATES_LIST
-            AppScreen.DRIVER_DETAIL -> currentScreen = previousScreenForStats
-            AppScreen.CONSTRUCTOR_DETAIL -> currentScreen = previousScreenForStats
-            AppScreen.CIRCUIT_DETAIL -> currentScreen = AppScreen.CALENDAR
-            AppScreen.RESULTS -> currentScreen = previousScreenForStats
-            AppScreen.SESSION_ANALYSIS -> currentScreen = AppScreen.RESULTS
-            AppScreen.HEAD_TO_HEAD -> currentScreen = AppScreen.DRIVER_DETAIL
-            AppScreen.HEAD_TO_HEAD_CONSTRUCTOR -> currentScreen = AppScreen.CONSTRUCTOR_DETAIL
-            AppScreen.RACE_SESSIONS -> currentScreen = previousScreenForSessions
-                AppScreen.PROFILE -> currentScreen = AppScreen.PERSONAL
-            else -> currentScreen = AppScreen.HOME
-        }
-    }
-
     LaunchedEffect(Unit) {
-        // Prima aggiorniamo i dati essenziali: così la cache precedente non viene
-        // mostrata per un istante come se fosse il prossimo GP corrente.
         val currentRaceWeekRefresh = launch { repository.refreshCurrentRaceWeek() }
         val calendarRefresh = launch { repository.refreshCalendar() }
         currentRaceWeekRefresh.join()
         calendarRefresh.join()
         isInitialDataReady = true
-
-        // I risultati non bloccano la Home: vengono completati in background
-        // per tutti i GP passati e per quello corrente, se già disponibili.
         launch { repository.prefetchCompletedSessionResults() }
-
-        // Classifiche, statistiche e news restano caricamenti secondari.
         launch { repository.refreshStandings() }
         launch { repository.refreshNews() }
     }
-
-    // --- SPLASH SCREEN BLOCCANTE ---
     if (!isInitialDataReady || raceWeek == null) {
         AppSplashScreen()
         return
     }
 
-    Box(modifier = Modifier
-        .fillMaxSize()
-        .background(AppBackgroundGradientColor)
-        .nestedScroll(nestedScrollConnection)
+    Box(
+        modifier = Modifier.fillMaxSize().background(AppBackgroundGradientColor).nestedScroll(nestedScrollConnection),
     ) {
         Canvas(modifier = Modifier.fillMaxSize().blur(220.dp).alpha(0.15f)) {
-            drawCircle(color = Color(0xFFE32219), radius = size.width / 2f, center = center.copy(y = size.height * 0.2f, x = size.width * 0.8f))
-            drawCircle(color = Color(0xFF00D2BE), radius = size.width / 2.5f, center = center.copy(y = size.height * 0.7f, x = size.width * 0.2f))
+            drawCircle(Color(0xFFE32219), size.width / 2f, center.copy(y = size.height * 0.2f, x = size.width * 0.8f))
+            drawCircle(Color(0xFF00D2BE), size.width / 2.5f, center.copy(y = size.height * 0.7f, x = size.width * 0.2f))
         }
-
-        Box(modifier = Modifier.fillMaxSize()) {
-            AnimatedContent(
-                targetState = currentScreen,
-                transitionSpec = { fadeIn(tween(400)) togetherWith fadeOut(tween(400)) },
-                label = "ScreenTransition"
-            ) { targetScreen ->
-                when (targetScreen) {
-                    AppScreen.HOME -> HomeScreen(raceWeek, raceWeek == null, newsEntities, onNavigate = {
-                        if (it == AppScreen.RACE_SESSIONS) {
-                            selectedRoundForSessions = raceWeek?.round_number ?: 0
-                            selectedSprintForSessions = raceWeek?.is_sprint ?: false
-                            selectedGpForSessions = raceWeek?.gp_name ?: ""
-                            selectedCountryForSessions = raceWeek?.country ?: ""
-                            selectedSessions = raceWeek?.sessions
-                            selectedDatesForSessions = raceWeek?.dates ?: emptyList()
-                            selectedGpStatusForSessions = raceWeek?.status ?: "future"
-                            previousScreenForSessions = AppScreen.HOME
-                            currentScreen = it
-                        } else if (it == AppScreen.UPDATES_LIST) {
-                            // Niente caricamenti, mostriamo subito il popup per ora!
-                            showNotReadyDialog = true
-                        } else {
-                            currentScreen = it
+        NavHost(
+            navController = navController,
+            startDestination = AppRoute.Home.pattern,
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .clipToBounds(),
+        ) {
+            composable(AppRoute.Home.pattern) {
+                HomeScreen(raceWeek, false, newsEntities, onNavigate = { destination ->
+                    when (destination) {
+                        HomeNavigation.RACE_SESSIONS -> {
+                            raceSessionsState = RaceSessionsNavigationState(raceWeek.is_sprint, raceWeek.gp_name, raceWeek.country, raceWeek.sessions, raceWeek.status, raceWeek.dates)
+                            navController.navigate(AppRoute.RaceSessions.pattern)
                         }
-                    }, onNavigateToNews = { index ->
-                        selectedNewsIndex = index
-                        currentScreen = AppScreen.NEWS
-                    })
-                    AppScreen.CALENDAR -> CalendarScreen(
-                        onNavigateToHome = { currentScreen = AppScreen.HOME },
-                        onNavigateToResults = { round, name ->
-                            selectedRound = round
-                            selectedGpName = name
-                            previousScreenForStats = AppScreen.CALENDAR
-                            currentScreen = AppScreen.RESULTS
-                        },
-                        onNavigateToCircuit = { round ->
-                            selectedCircuitRound = round
-                            currentScreen = AppScreen.CIRCUIT_DETAIL
-                        }
-                    )
-                    AppScreen.PERSONAL -> PersonalScreen(onNavigateToProfile = { currentScreen = AppScreen.PROFILE })
-                    AppScreen.PROFILE -> ProfileScreen(authUiState, onBack = { currentScreen = AppScreen.PERSONAL })
-                AppScreen.NEWS -> NewsScreen(newsEntities, selectedNewsIndex, isRefreshingNews, onRefresh = {
-                    coroutineScope.launch {
-                        isRefreshingNews = true
-                        repository.refreshNews()
-                        isRefreshingNews = false
+                        HomeNavigation.WEATHER -> navController.navigate(AppRoute.Weather.pattern)
+                        HomeNavigation.UPDATES -> showNotReadyDialog = true
                     }
+                }, onNavigateToNews = { articleIndex ->
+                    activeTopLevelRoute = AppRoute.News.pattern
+                    navController.navigate(AppRoute.News.create(articleIndex))
                 })
-                    AppScreen.UPDATES_LIST -> UpdatesListScreen(updatesWrapper?.data ?: emptyList(), isLoadingUpdates, onTeamClick = { selectedTeam = it; currentScreen = AppScreen.TEAM_DETAIL })
-                    AppScreen.TEAM_DETAIL -> TeamUpdateDetailScreen(selectedTeam!!)
-                    AppScreen.WEATHER_DETAIL -> WeatherDetailScreen(raceWeek, raceWeekEntity)
-                    AppScreen.RESULTS -> RaceResultsScreen(
-                        selectedRound,
-                        selectedGpName,
-                        selectedSessionType,
-                        onDriverClick = { name ->
-                            previousScreenForStats = AppScreen.RESULTS
-                            selectedDriverName = name
-                            currentScreen = AppScreen.DRIVER_DETAIL
-                        },
-                        onOpenAnalysis = {
-                            currentScreen = AppScreen.SESSION_ANALYSIS
-                        },
-                    )
-                    AppScreen.SESSION_ANALYSIS -> SessionAnalysisScreen(
-                        roundNumber = selectedRound,
-                        gpName = selectedGpName,
-                        sessionType = selectedSessionType,
-                    )
-                    AppScreen.STANDINGS -> StandingsScreen(
-                        selectedTab = standingsSelectedTab,
-                        onTabChange = { standingsSelectedTab = it },
-                        onDriverClick = { name ->
-                            previousScreenForStats = AppScreen.STANDINGS
-                            selectedDriverName = name
-                            currentScreen = AppScreen.DRIVER_DETAIL
-                        },
-                        onConstructorClick = { id ->
-                            previousScreenForStats = AppScreen.STANDINGS
-                            selectedConstructorId = id
-                            currentScreen = AppScreen.CONSTRUCTOR_DETAIL
-                        }
-                    )
-                    AppScreen.DRIVER_DETAIL -> DriverDetailScreen(selectedDriverName, onNavigateToH2H = { id ->
-                        selectedH2HDriverId = id
-                        currentScreen = AppScreen.HEAD_TO_HEAD
-                    })
-                    AppScreen.CONSTRUCTOR_DETAIL -> ConstructorDetailScreen(selectedConstructorId, onNavigateToH2H = { id ->
-                        selectedH2HConstructorId = id
-                        currentScreen = AppScreen.HEAD_TO_HEAD_CONSTRUCTOR
-                    })
-                    AppScreen.RACE_SESSIONS -> RaceSessionsScreen(selectedSprintForSessions, selectedGpForSessions, selectedCountryForSessions, selectedSessions, selectedGpStatusForSessions, selectedDatesForSessions, onNavigateToResults = { type ->
-                        selectedSessionType = type
-                        selectedRound = selectedRoundForSessions
-                        selectedGpName = selectedGpForSessions
-                        previousScreenForStats = AppScreen.RACE_SESSIONS
-                        currentScreen = AppScreen.RESULTS
-                    })
-                    AppScreen.CIRCUIT_DETAIL -> CircuitDetailScreen(
-                        round = selectedCircuitRound,
-
-                    onNavigateToSessions = { isSprint, name, country, sessions, gpStatus, dates ->
-                        selectedRoundForSessions = selectedCircuitRound
-                        selectedDatesForSessions = dates
-                            selectedSprintForSessions = isSprint
-                            selectedGpForSessions = name
-                            selectedCountryForSessions = country
-                            selectedSessions = sessions
-                            selectedGpStatusForSessions = gpStatus
-                        previousScreenForSessions = AppScreen.CIRCUIT_DETAIL
-                            currentScreen = AppScreen.RACE_SESSIONS
-                        })
-                    AppScreen.HEAD_TO_HEAD -> HeadToHeadScreen(selectedH2HDriverId, onBack = {
-                        currentScreen = AppScreen.DRIVER_DETAIL
-                    })
-                    AppScreen.HEAD_TO_HEAD_CONSTRUCTOR -> HeadToHeadConstructorScreen(selectedH2HConstructorId, onBack = {
-                        currentScreen = AppScreen.CONSTRUCTOR_DETAIL
-                    })
-                }
-                }
-
-            val isPreferencesOnboardingActive = currentScreen == AppScreen.PERSONAL && authUiState.isLoggedIn && authUiState.userProfile != null && !authUiState.userProfile!!.preferences_set
-            if (currentScreen in listOf(AppScreen.HOME, AppScreen.CALENDAR, AppScreen.PERSONAL, AppScreen.NEWS, AppScreen.RESULTS, AppScreen.STANDINGS, AppScreen.WEATHER_DETAIL, AppScreen.DRIVER_DETAIL, AppScreen.CONSTRUCTOR_DETAIL, AppScreen.RACE_SESSIONS, AppScreen.CIRCUIT_DETAIL, AppScreen.SESSION_ANALYSIS) && !isPreferencesOnboardingActive) {
-                Box(
-                    modifier = Modifier
-                        .offset(y = bottomBarOffset)
-                        .align(Alignment.BottomCenter)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(110.dp)
-                            .background(
-                                brush = Brush.verticalGradient(
-                                    colors = listOf(Color.Transparent, AppBackgroundGradientColor.copy(alpha = 0.85f))
-                                )
-                            )
-                    )
-
-                    Box(modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 20.dp)) {
-                        FloatingBottomBar(currentScreen = currentScreen, previousScreenForStats = previousScreenForStats, previousScreenForSessions = previousScreenForSessions, onNavigate = {
-                            if (it == AppScreen.UPDATES_LIST && updatesWrapper?.status == "not_ready") {
-                                showNotReadyDialog = true
-                            } else {
-                                currentScreen = it
+            }
+            composable(AppRoute.Calendar.pattern) {
+                CalendarScreen(
+                    onNavigateToHome = { navigateToTopLevel(AppRoute.Home.pattern, AppRoute.Home.pattern) },
+                    onNavigateToResults = { round, name -> navController.navigate(AppRoute.Results.create(round, "race", name)) },
+                    onNavigateToCircuit = { round -> navController.navigate(AppRoute.CircuitDetail.create(round)) },
+                )
+            }
+            composable(AppRoute.Standings.pattern) {
+                StandingsScreen(
+                    selectedTab = standingsSelectedTab,
+                    onTabChange = { standingsSelectedTab = it },
+                    onDriverClick = { driverName -> navController.navigate(AppRoute.DriverDetail.create(driverName)) },
+                    onConstructorClick = { constructorId -> navController.navigate(AppRoute.ConstructorDetail.create(constructorId)) },
+                )
+            }
+            composable(AppRoute.News.pattern, arguments = listOf(navArgument("articleIndex") { type = NavType.IntType })) { entry ->
+                NewsScreen(
+                    articles = newsEntities,
+                    initialIndex = (entry.arguments?.getInt("articleIndex") ?: 0).coerceAtLeast(0),
+                    isRefreshing = isRefreshingNews,
+                    onRefresh = { coroutineScope.launch { isRefreshingNews = true; repository.refreshNews(); isRefreshingNews = false } },
+                )
+            }
+            composable(AppRoute.Personal.pattern) {
+                PersonalScreen(
+                    authViewModel = authViewModel,
+                    onNavigateToProfile = {
+                        if (navController.currentDestination?.route != AppRoute.Profile.pattern) {
+                            navController.navigate(AppRoute.Profile.pattern) {
+                                launchSingleTop = true
                             }
-                        })
+                        }
                     }
+                )
+            }
+            composable(AppRoute.Profile.pattern) { ProfileScreen(authUiState, onBack = { navController.popBackStack() }) }
+            composable(AppRoute.Updates.pattern) {
+                UpdatesListScreen(updatesWrapper?.data ?: emptyList(), isLoadingUpdates, onTeamClick = { team -> selectedTeam = team; navController.navigate(AppRoute.TeamUpdate.pattern) })
+            }
+            composable(AppRoute.TeamUpdate.pattern) {
+                val team = selectedTeam
+                if (team == null) LaunchedEffect(Unit) { navController.popBackStack() } else TeamUpdateDetailScreen(team)
+            }
+            composable(AppRoute.Weather.pattern) { WeatherDetailScreen(raceWeek, raceWeekEntity) }
+            composable(AppRoute.Results.pattern, arguments = listOf(
+                navArgument("round") { type = NavType.IntType },
+                navArgument("sessionType") { type = NavType.StringType },
+                navArgument("gpName") { type = NavType.StringType },
+            )) { entry ->
+                val round = entry.arguments?.getInt("round") ?: 0
+                val sessionType = Uri.decode(entry.arguments?.getString("sessionType").orEmpty())
+                val gpName = Uri.decode(entry.arguments?.getString("gpName").orEmpty())
+                if (round > 0 && sessionType.isNotBlank() && gpName.isNotBlank()) {
+                    RaceResultsScreen(round, gpName, sessionType, onDriverClick = { driverName -> navController.navigate(AppRoute.DriverDetail.create(driverName)) }, onOpenAnalysis = { navController.navigate(AppRoute.SessionAnalysis.create(round, sessionType, gpName)) })
                 }
+            }
+            composable(AppRoute.SessionAnalysis.pattern, arguments = listOf(
+                navArgument("round") { type = NavType.IntType },
+                navArgument("sessionType") { type = NavType.StringType },
+                navArgument("gpName") { type = NavType.StringType },
+            )) { entry ->
+                val round = entry.arguments?.getInt("round") ?: 0
+                val sessionType = Uri.decode(entry.arguments?.getString("sessionType").orEmpty())
+                val gpName = Uri.decode(entry.arguments?.getString("gpName").orEmpty())
+                if (round > 0 && sessionType.isNotBlank() && gpName.isNotBlank()) SessionAnalysisScreen(round, gpName, sessionType)
+            }
+            composable(AppRoute.DriverDetail.pattern, arguments = listOf(navArgument("driverName") { type = NavType.StringType })) { entry ->
+                val driverName = Uri.decode(entry.arguments?.getString("driverName").orEmpty())
+                if (driverName.isNotBlank()) DriverDetailScreen(driverName, onNavigateToH2H = { driverId -> navController.navigate(AppRoute.DriverHeadToHead.create(driverId)) })
+            }
+            composable(AppRoute.ConstructorDetail.pattern, arguments = listOf(navArgument("constructorId") { type = NavType.StringType })) { entry ->
+                val constructorId = Uri.decode(entry.arguments?.getString("constructorId").orEmpty())
+                if (constructorId.isNotBlank()) ConstructorDetailScreen(constructorId, onNavigateToH2H = { constructorIdForH2H -> navController.navigate(AppRoute.ConstructorHeadToHead.create(constructorIdForH2H)) })
+            }
+            composable(AppRoute.RaceSessions.pattern) {
+                val state = raceSessionsState
+                if (state == null) {
+                    LaunchedEffect(Unit) { navController.popBackStack() }
+                } else {
+                    RaceSessionsScreen(state.isSprint, state.gpName, state.country, state.sessions, state.gpStatus, state.dates, onNavigateToResults = { sessionType ->
+                        val previousEntry = navController.previousBackStackEntry
+                        val round = if (previousEntry?.destination?.route == AppRoute.CircuitDetail.pattern) previousEntry.arguments?.getInt("round") ?: raceWeek.round_number else raceWeek.round_number
+                        navController.navigate(AppRoute.Results.create(round, sessionType, state.gpName))
+                    })
+                }
+            }
+            composable(AppRoute.CircuitDetail.pattern, arguments = listOf(navArgument("round") { type = NavType.IntType })) { entry ->
+                val round = entry.arguments?.getInt("round") ?: 0
+                if (round > 0) CircuitDetailScreen(round, onNavigateToSessions = { isSprint, name, country, sessions, gpStatus, dates ->
+                    raceSessionsState = RaceSessionsNavigationState(isSprint, name, country, sessions, gpStatus, dates)
+                    navController.navigate(AppRoute.RaceSessions.pattern)
+                })
+            }
+            composable(AppRoute.DriverHeadToHead.pattern, arguments = listOf(navArgument("driverId") { type = NavType.StringType })) { entry ->
+                val driverId = Uri.decode(entry.arguments?.getString("driverId").orEmpty())
+                if (driverId.isNotBlank()) HeadToHeadScreen(driverId, onBack = { navController.popBackStack() })
+            }
+            composable(AppRoute.ConstructorHeadToHead.pattern, arguments = listOf(navArgument("constructorId") { type = NavType.StringType })) { entry ->
+                val constructorId = Uri.decode(entry.arguments?.getString("constructorId").orEmpty())
+                if (constructorId.isNotBlank()) HeadToHeadConstructorScreen(constructorId, onBack = { navController.popBackStack() })
             }
         }
 
+        // Fade sottili sopra e sotto il contenuto: le barre di sistema trasparenti
+        // restano leggibili e diventano una prosecuzione dello sfondo dell'app.
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxWidth()
+                .height(80.dp)
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color.Black.copy(alpha = 0.58f),
+                            AppBackgroundGradientColor.copy(alpha = 0.22f),
+                            Color.Transparent,
+                        )
+                    )
+                )
+        )
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .height(88.dp)
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            AppBackgroundGradientColor.copy(alpha = 0.94f),
+                        )
+                    )
+                )
+        )
+
+        val isPreferencesOnboardingActive = currentRoute == AppRoute.Personal.pattern && authUiState.isLoggedIn && authUiState.userProfile != null && !authUiState.userProfile!!.preferences_set
+        if (currentRoute in bottomBarVisibleRoutePatterns && !isPreferencesOnboardingActive) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .offset(y = bottomBarOffset)
+                    .align(Alignment.BottomCenter)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(110.dp)
+                        .align(Alignment.BottomCenter)
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(Color.Transparent, AppBackgroundGradientColor.copy(alpha = 0.96f))
+                            )
+                        )
+                )
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .navigationBarsPadding()
+                        .padding(bottom = 20.dp)
+                ) {
+                    FloatingBottomBar(currentTopLevelRoute = activeTopLevelRoute, onNavigate = { destination, topLevelRoute -> navigateFromBottomBar(destination, topLevelRoute) })
+                }
+            }
+        }
         if (showNotReadyDialog) {
             AlertDialog(
                 onDismissRequest = { showNotReadyDialog = false },
                 shape = RoundedCornerShape(28.dp),
                 containerColor = Color(0xFF1E0A0A).copy(alpha = 0.95f),
-                title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Timer, null, tint = Color(0xFF00FFCC), modifier = Modifier.size(28.dp))
-                        Spacer(Modifier.width(12.dp))
-                        Text("NON ANCORA PRONTO", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Black)
-                    }
-                },
-                text = {
-                    Text(
-                        "La FIA non ha ancora pubblicato il documento degli aggiornamenti tecnici per il ${updatesWrapper?.gp ?: "GP"}. Torna Venerdì mattina!",
-                        color = Color.White.copy(alpha = 0.7f),
-                        fontSize = 15.sp,
-                        lineHeight = 22.sp
-                    )
-                },
-                confirmButton = {
-                    TextButton(onClick = { showNotReadyDialog = false }) {
-                        Text("OK", color = Color(0xFF00FFCC), fontWeight = FontWeight.Black)
-                    }
-                }
+                title = { Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.Timer, null, tint = Color(0xFF00FFCC), modifier = Modifier.size(28.dp)); Spacer(Modifier.width(12.dp)); Text("NON ANCORA PRONTO", color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Black) } },
+                text = { Text("La FIA non ha ancora pubblicato il documento degli aggiornamenti tecnici per il ${updatesWrapper?.gp ?: "GP"}. Torna Venerdì mattina!", color = Color.White.copy(alpha = 0.7f), fontSize = 15.sp, lineHeight = 22.sp) },
+                confirmButton = { TextButton(onClick = { showNotReadyDialog = false }) { Text("OK", color = Color(0xFF00FFCC), fontWeight = FontWeight.Black) } },
             )
         }
     }
-}
-
-@Composable
+}@Composable
 fun CircuitDetailScreen(round: Int, onNavigateToSessions: (Boolean, String, String, SessionTimes, String, List<String>) -> Unit) {
     val context = LocalContext.current
     val database = remember { FormulaDatabase.getDatabase(context) }
@@ -1861,50 +1888,38 @@ fun ShimmerStandingRow() {
 }
 
 @Composable
-fun FloatingBottomBar(currentScreen: AppScreen, previousScreenForStats: AppScreen, previousScreenForSessions: AppScreen, onNavigate: (AppScreen) -> Unit) {
+fun FloatingBottomBar(currentTopLevelRoute: String, onNavigate: (destination: String, topLevelRoute: String) -> Unit) {
     val items = listOf(
-        Triple(Icons.Default.DateRange, "Calendar", AppScreen.CALENDAR),
-        Triple(Icons.Default.Home, "Home", AppScreen.HOME),
-        Triple(Icons.Default.Leaderboard, "Classifiche", AppScreen.STANDINGS),
-        Triple(Icons.Default.Article, "News", AppScreen.NEWS),
-        Triple(Icons.Default.Person, "Personal", AppScreen.PERSONAL)
+        Triple(Icons.Default.DateRange, "Calendar", AppRoute.Calendar.pattern),
+        Triple(Icons.Default.Home, "Home", AppRoute.Home.pattern),
+        Triple(Icons.Default.Leaderboard, "Classifiche", AppRoute.Standings.pattern),
+        Triple(Icons.Default.Article, "News", AppRoute.News.pattern),
+        Triple(Icons.Default.Person, "Personal", AppRoute.Personal.pattern),
     )
     val barWidth = 252.dp
     val barHeight = 55.dp
     Surface(modifier = Modifier.height(barHeight).width(barWidth), shape = CircleShape, color = Color(0xFF1E0A0A).copy(alpha = 0.90f)) {
         Box(modifier = Modifier.fillMaxSize()) {
-            val effectiveScreen = when(currentScreen) {
-                AppScreen.CALENDAR, AppScreen.CIRCUIT_DETAIL -> AppScreen.CALENDAR
-                AppScreen.STANDINGS, AppScreen.DRIVER_DETAIL, AppScreen.CONSTRUCTOR_DETAIL -> AppScreen.STANDINGS
-                AppScreen.PERSONAL -> AppScreen.PERSONAL
-                AppScreen.NEWS -> AppScreen.NEWS
-                AppScreen.RESULTS -> if (previousScreenForStats == AppScreen.RACE_SESSIONS && previousScreenForSessions == AppScreen.HOME) AppScreen.HOME else AppScreen.CALENDAR
-                AppScreen.RACE_SESSIONS -> previousScreenForSessions
-                else -> AppScreen.HOME
-            }
-
-            val selectedIndex = items.indexOfFirst { it.third == effectiveScreen }.let { if (it == -1) 1 else it }
+            val selectedIndex = items.indexOfFirst { it.third == currentTopLevelRoute }.let { if (it == -1) 1 else it }
             val itemWidth = barWidth / items.size
             val indicatorOffset by animateDpAsState(targetValue = (selectedIndex * itemWidth.value).dp, animationSpec = tween(300), label = "Indicator")
             Box(modifier = Modifier.offset(x = indicatorOffset).width(itemWidth).fillMaxHeight(), contentAlignment = Alignment.Center) {
                 Box(modifier = Modifier.size(38.dp).background(Color(0xFF00FFCC).copy(alpha = 0.25f), CircleShape))
             }
             Row(modifier = Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
-                items.forEach { (icon, label, screen) ->
-                    val isSelected = screen == effectiveScreen
+                items.forEach { (icon, label, routePattern) ->
+                    val destination = if (routePattern == AppRoute.News.pattern) AppRoute.News.create() else routePattern
                     Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                        IconButton(onClick = { onNavigate(screen) }) {
-                            Icon(imageVector = icon, contentDescription = label, tint = if (isSelected) Color(0xFF00FFCC) else Color.White.copy(alpha = 0.4f), modifier = Modifier.size(24.dp))
+                        IconButton(onClick = { onNavigate(destination, routePattern) }) {
+                            Icon(icon, label, tint = if (routePattern == currentTopLevelRoute) Color(0xFF00FFCC) else Color.White.copy(alpha = 0.4f), modifier = Modifier.size(24.dp))
                         }
                     }
                 }
             }
         }
     }
-}
-
-@Composable
-fun HomeScreen(raceWeek: RaceWeekResponse?, isLoading: Boolean, articles: List<NewsArticleEntity>, onNavigate: (AppScreen) -> Unit, onNavigateToNews: (Int) -> Unit = {}) {
+}@Composable
+private fun HomeScreen(raceWeek: RaceWeekResponse?, isLoading: Boolean, articles: List<NewsArticleEntity>, onNavigate: (HomeNavigation) -> Unit, onNavigateToNews: (Int) -> Unit = {}) {
     val context = LocalContext.current
     val database = remember { FormulaDatabase.getDatabase(context) }
     val repository = remember { FormulaRepository(database) }
@@ -2027,7 +2042,7 @@ fun HomeScreen(raceWeek: RaceWeekResponse?, isLoading: Boolean, articles: List<N
                     corners = corners
                 )
 
-            FullWidthGlassCard(title = "RACE SESSIONS", content = "See all weekend schedule", accentColor = Color(0xFF00FFCC), isHighlighted = true, onClick = { onNavigate(AppScreen.RACE_SESSIONS) })
+            FullWidthGlassCard(title = "RACE SESSIONS", content = "See all weekend schedule", accentColor = Color(0xFF00FFCC), isHighlighted = true, onClick = { onNavigate(HomeNavigation.RACE_SESSIONS) })
             
             // Ora mostriamo se sta caricando o se i dati non sono disponibili
             val weatherStatus = raceWeek.weather_forecast?.status ?: if (isLoading) "Loading..." else "Not Available"
@@ -2041,8 +2056,8 @@ fun HomeScreen(raceWeek: RaceWeekResponse?, isLoading: Boolean, articles: List<N
             }
             
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FullWidthGlassCard(title = "WEATHER", content = "$weatherIcon $temp", accentColor = Color(0xFF00FFCC), showChevron = false, modifier = Modifier.weight(0.43f), onClick = { onNavigate(AppScreen.WEATHER_DETAIL) })
-                FullWidthGlassCard(title = "UPDATES", content = "Tech report", accentColor = Color(0xFF00FFCC), showChevron = true, modifier = Modifier.weight(0.57f), onClick = { onNavigate(AppScreen.UPDATES_LIST) })
+                FullWidthGlassCard(title = "WEATHER", content = "$weatherIcon $temp", accentColor = Color(0xFF00FFCC), showChevron = false, modifier = Modifier.weight(0.43f), onClick = { onNavigate(HomeNavigation.WEATHER) })
+                FullWidthGlassCard(title = "UPDATES", content = "Tech report", accentColor = Color(0xFF00FFCC), showChevron = true, modifier = Modifier.weight(0.57f), onClick = { onNavigate(HomeNavigation.UPDATES) })
             }
             } else {
                 Box(modifier = Modifier.fillMaxWidth().height(180.dp), contentAlignment = Alignment.Center) {
@@ -2421,9 +2436,9 @@ fun NewsBannerCarousel(articles: List<NewsArticleEntity>, onNewsClick: (Int) -> 
 fun AppSplashScreen() {
     Box(modifier = Modifier.fillMaxSize().background(AppBackgroundGradientColor), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(Icons.Default.EmojiEvents, contentDescription = "Logo", tint = Color(0xFF00FFCC), modifier = Modifier.size(72.dp))
+            Image(painter = painterResource(id = R.drawable.gphub_icon), contentDescription = "Logo GPHub", contentScale = ContentScale.Fit, modifier = Modifier.size(72.dp).clip(RoundedCornerShape(16.dp)))
             Spacer(modifier = Modifier.height(24.dp))
-            Text("FORMULA KNOWLEDGE", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic, letterSpacing = 1.sp)
+            Text("GPHub", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic, letterSpacing = 1.sp)
             Spacer(modifier = Modifier.height(16.dp))
             CircularProgressIndicator(color = Color(0xFF00FFCC), modifier = Modifier.size(32.dp), strokeWidth = 3.dp)
         }
@@ -2431,7 +2446,7 @@ fun AppSplashScreen() {
 }
 
 @Composable
-fun OnboardingScreen(onSkip: () -> Unit, onGoogleSignIn: () -> Unit) {
+fun OnboardingScreen(isGoogleSignInInProgress: Boolean, onSkip: () -> Unit, onGoogleSignIn: () -> Unit) {
     var isSkipping by remember { mutableStateOf(false) }
 
     Box(modifier = Modifier.fillMaxSize().background(AppBackgroundGradientColor)) {
@@ -2462,9 +2477,9 @@ fun OnboardingScreen(onSkip: () -> Unit, onGoogleSignIn: () -> Unit) {
 
         // LOGO E TITOLO
         Column(modifier = Modifier.align(Alignment.Center).offset(y = (-40).dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(Icons.Default.EmojiEvents, contentDescription = "Logo", tint = Color(0xFF00FFCC), modifier = Modifier.size(96.dp))
+            Image(painter = painterResource(id = R.drawable.gphub_icon), contentDescription = "Logo GPHub", contentScale = ContentScale.Fit, modifier = Modifier.size(96.dp).clip(RoundedCornerShape(20.dp)))
             Spacer(modifier = Modifier.height(24.dp))
-            Text("FORMULA KNOWLEDGE", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic, letterSpacing = 1.sp)
+            Text("GPHub", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic, letterSpacing = 1.sp)
         }
 
         // AREA INFERIORE (BOTTONE + LEGAL)
@@ -2474,9 +2489,10 @@ fun OnboardingScreen(onSkip: () -> Unit, onGoogleSignIn: () -> Unit) {
         ) {
             Button(
                 onClick = onGoogleSignIn,
+                enabled = !isGoogleSignInInProgress,
                 modifier = Modifier.fillMaxWidth().height(54.dp),
                 shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color.White)
+                colors = ButtonDefaults.buttonColors(containerColor = Color.White, disabledContainerColor = Color.White, disabledContentColor = Color.Black)
             ) {
                 val googleIconId = LocalContext.current.resources.getIdentifier("ic_google", "drawable", LocalContext.current.packageName)
                 if (googleIconId != 0) {
@@ -2500,11 +2516,11 @@ fun OnboardingScreen(onSkip: () -> Unit, onGoogleSignIn: () -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PersonalScreen(onNavigateToProfile: () -> Unit = {}) {
+fun PersonalScreen(
+    authViewModel: AuthViewModel,
+    onNavigateToProfile: () -> Unit = {}
+) {
     val context = LocalContext.current
-    val authViewModel: AuthViewModel = androidx.lifecycle.viewmodel.compose.viewModel(
-        factory = AuthViewModelFactory(context)
-    )
     val uiState by authViewModel.uiState.collectAsState()
 
    var showAuthScreen by remember { mutableStateOf(false) }
@@ -2541,7 +2557,7 @@ fun PersonalScreen(onNavigateToProfile: () -> Unit = {}) {
         }
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp).verticalScroll(rememberScrollState())) {
-        Spacer(modifier = Modifier.height(26.dp))
+        Spacer(modifier = Modifier.height(18.dp))
         Box(modifier = Modifier.fillMaxWidth().height(160.dp), contentAlignment = Alignment.BottomStart) {
             Box(
                 modifier = Modifier
@@ -2551,7 +2567,7 @@ fun PersonalScreen(onNavigateToProfile: () -> Unit = {}) {
                     .graphicsLayer {
                         alpha = 0.99f
                         translationX = 20.dp.toPx()
-                        translationY = -26.dp.toPx()
+                        translationY = -10.dp.toPx()
                         scaleX = 1.5f
                         scaleY = 1.5f
                     }
@@ -2577,7 +2593,7 @@ fun PersonalScreen(onNavigateToProfile: () -> Unit = {}) {
             ) {
                 Icon(imageVector = Icons.Default.Settings, contentDescription = "Background Settings", tint = Color.White, modifier = Modifier.fillMaxSize().alpha(0.15f))
             }
-            Column {
+            Column(modifier = Modifier.offset(y = (-6).dp)) {
                 Text(text = "PERSONAL", color = Color.White, fontSize = 54.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic, letterSpacing = (-3).sp, lineHeight = 44.sp)
                 Text(text = "DASHBOARD", color = Color(0xFF00FFCC), fontSize = 38.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic, letterSpacing = (-2).sp, modifier = Modifier.offset(y = (-8).dp))
             }
@@ -2603,9 +2619,10 @@ fun PersonalScreen(onNavigateToProfile: () -> Unit = {}) {
 
                     Button(
                         onClick = { authViewModel.signInWithGoogle(context) },
+                        enabled = !uiState.isLoading,
                         modifier = Modifier.fillMaxWidth().height(50.dp),
                         shape = RoundedCornerShape(14.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color.White)
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.White, disabledContainerColor = Color.White, disabledContentColor = Color.Black)
                     ) {
                         val googleIconId = context.resources.getIdentifier("ic_google", "drawable", context.packageName)
                         if (googleIconId != 0) {
@@ -2620,36 +2637,77 @@ fun PersonalScreen(onNavigateToProfile: () -> Unit = {}) {
             }
         } else {
             // --- LOGGED IN VIEW (UNLOCKED) ---
+            val profileAccent = uiState.userProfile?.favorite_constructor_id?.let { constructorId ->
+                F1Utils.getTeamColor(constructorId).takeUnless { it == Color.Gray }
+            } ?: Color(0xFF00FFCC)
+
             Surface(
-                modifier = Modifier.fillMaxWidth().clickable { onNavigateToProfile() },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(20.dp))
+                    .clickable { onNavigateToProfile() },
                 shape = RoundedCornerShape(20.dp),
-                color = Color.White.copy(alpha = 0.03f),
-                border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.1f))
+                color = profileAccent.copy(alpha = 0.07f),
+                border = BorderStroke(1.dp, profileAccent.copy(alpha = 0.28f))
             ) {
-                Column(modifier = Modifier.padding(16.dp)) { // Altezza card ridotta
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Surface(shape = CircleShape, color = Color(0xFF00FFCC).copy(alpha = 0.15f), modifier = Modifier.size(54.dp)) {
-                            if (!uiState.userProfile?.profile_image_url.isNullOrEmpty()) {
-                                AsyncImage(
-                                    model = uiState.userProfile?.profile_image_url,
-                                    contentDescription = "Profile Picture",
-                                    contentScale = ContentScale.Crop,
-                                    modifier = Modifier.fillMaxSize()
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            Brush.horizontalGradient(
+                                colors = listOf(
+                                    profileAccent.copy(alpha = 0.20f),
+                                    Color.White.copy(alpha = 0.035f),
+                                    Color.Transparent
                                 )
-                            } else {
-                                Icon(Icons.Default.Person, contentDescription = null, tint = Color(0xFF00FFCC), modifier = Modifier.padding(12.dp))
+                            )
+                        )
+                        .padding(18.dp)
+                ) {
+
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Surface(
+                                shape = CircleShape,
+                                color = profileAccent.copy(alpha = 0.18f),
+                                border = BorderStroke(1.dp, profileAccent.copy(alpha = 0.55f)),
+                                modifier = Modifier.size(58.dp)
+                            ) {
+                                if (!uiState.userProfile?.profile_image_url.isNullOrEmpty()) {
+                                    AsyncImage(
+                                        model = uiState.userProfile?.profile_image_url,
+                                        contentDescription = "Profile Picture",
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                } else {
+                                    Icon(Icons.Default.Person, contentDescription = null, tint = profileAccent, modifier = Modifier.padding(13.dp))
+                                }
+                            }
+                            Spacer(modifier = Modifier.width(14.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("WELCOME BACK", color = Color.White.copy(alpha = 0.62f), fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                                if (uiState.isLoading || uiState.userProfile == null) {
+                                    Text("LOADING...", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic)
+                                } else {
+                                    val displayName = uiState.userProfile?.full_name?.split(" ")?.firstOrNull()?.uppercase() ?: uiState.userProfile?.email?.substringBefore("@")?.uppercase() ?: "DRIVER"
+                                    Text(displayName, color = Color.White, fontSize = 23.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                            }
+                            Surface(
+                                shape = CircleShape,
+                                color = profileAccent.copy(alpha = 0.20f),
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    Icons.AutoMirrored.Filled.ArrowForward,
+                                    contentDescription = "Apri profilo",
+                                    tint = Color.White,
+                                    modifier = Modifier.padding(8.dp)
+                                )
                             }
                         }
-                        Spacer(modifier = Modifier.width(16.dp))
-                        Column {
-                            Text("WELCOME BACK", color = Color.White.copy(alpha = 0.5f), fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-                            if (uiState.isLoading || uiState.userProfile == null) {
-                                Text("LOADING...", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic)
-                            } else {
-                                val displayName = uiState.userProfile?.full_name?.split(" ")?.firstOrNull()?.uppercase() ?: uiState.userProfile?.email?.substringBefore("@")?.uppercase() ?: "DRIVER"
-                                Text(displayName, color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Black, fontStyle = FontStyle.Italic, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            }
-                        }
+
                     }
                 }
             }
@@ -2694,7 +2752,11 @@ fun PersonalScreen(onNavigateToProfile: () -> Unit = {}) {
 
 @Composable
 fun ProfileScreen(uiState: AuthUiState, onBack: () -> Unit) {
-    val profile = uiState.userProfile ?: return
+    val profile = uiState.userProfile
+    if (profile == null) {
+        LaunchedEffect(Unit) { onBack() }
+        return
+    }
     
     // Tema basato sulla scuderia preferita (o colore default)
     val defaultAccent = Color(0xFF00FFCC)
@@ -2842,9 +2904,10 @@ fun AuthScreenLayout(
         // --- GOOGLE BUTTON ---
         Button(
             onClick = { onGoogleSignIn() },
+            enabled = !uiState.isLoading,
             modifier = Modifier.fillMaxWidth().height(54.dp),
             shape = RoundedCornerShape(14.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Color.White)
+            colors = ButtonDefaults.buttonColors(containerColor = Color.White, disabledContainerColor = Color.White, disabledContentColor = Color.Black)
         ) {
             // Placeholder per l'icona di Google
             Icon(Icons.Default.AccountCircle, contentDescription = "Google", tint = Color.Black)

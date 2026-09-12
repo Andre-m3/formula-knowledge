@@ -1,4 +1,4 @@
-# Formula Knowledge — Roadmap tecnica
+# GPHub — Roadmap tecnica
 
 Questo documento raccoglie le decisioni architetturali e le attività consigliate prima di proseguire con nuove funzionalità.
 
@@ -18,14 +18,14 @@ Questo documento raccoglie le decisioni architetturali e le attività consigliat
 - `FiaScraperService` cerca i documenti FIA, estrae i PDF, usa Gemini per strutturare/tradurre gli aggiornamenti tecnici e li salva nel database.
 - `rss_scraper.py` importa news da feed RSS e mantiene gli articoli più recenti.
 - Gli script di seed inizializzano anagrafiche, gare e statistiche storiche/stagionali.
-- `update_post_race.py` applica i risultati di un round tramite delta e `RoundProcessingLog`, così lo stesso round può essere ricalcolato dopo penalità o modifiche ufficiali.
-- `sync_session_results.py` riconcilia in modo idempotente la tabella canonica `RaceResult`; `sync_session_analysis.py` archivia i giri completi post-sessione; `sync_database.py` esegue entrambi senza alterare i dati già validi.
+- `sync_session_results.py` riconcilia in modo idempotente la tabella canonica `RaceResult`; `sync_session_analysis.py` archivia i giri completi post-sessione; `sync_database.py` coordina il flusso canonico, ricalcola le statistiche e non altera sessioni già valide.
 
 ### Frontend
 
 - L’app è Android nativa Kotlin con Jetpack Compose e Material 3.
 - `MainActivity` avvia `UpdatesScreen`, che oggi funge da root container dell’app.
-- La navigazione è manuale: enum `AppScreen`, variabili `selected*`, `AnimatedContent` e gestione personalizzata del back button.
+- Navigation Compose 2.7.7 usa `NavController` e `NavHost`; `navigation/AppRoute.kt` centralizza route e validazione degli argomenti. La bottom bar mantiene `saveState`, `restoreState` e `launchSingleTop` per le destinazioni top-level.
+- `MainActivity` abilita system bar edge-to-edge trasparenti con icone chiare; `UpdatesScreen` gestisce inset e fade superiore/inferiore, mentre la bottom bar rispetta la gesture area.
 - Retrofit/Gson comunica con FastAPI tramite `F1ApiService`.
 - Un interceptor aggiunge l’header `X-API-Key` alle chiamate.
 - `FormulaRepository` coordina API, cache e database locale Room.
@@ -35,7 +35,7 @@ Questo documento raccoglie le decisioni architetturali e le attività consigliat
 - `refreshCalendar()` aggiorna il calendario completo; dopo che la Home è pronta, `prefetchCompletedSessionResults()` completa in background dettagli circuito e tutte le sessioni dei round passati/correnti, mentre i round futuri restano on-demand.
 - Il backup Android esclude il database Room/cache, DataStore e SharedPreferences per evitare il ripristino di dati vecchi sopra una nuova installazione.
 - Identity gestita da Firebase; la UI corrente espone solo Google Sign-In, mentre email/password resta predisposto ma disabilitato dal flag `EMAIL_PASSWORD_AUTH_ENABLED`.
-- FirebaseAuth gestisce la sessione; DataStore conserva soltanto lo stato di completamento onboarding.
+- FirebaseAuth gestisce la sessione; DataStore conserva soltanto lo stato di completamento onboarding. Il Google Sign-In è single-flight: un guard atomico nel ViewModel e pulsanti disabilitati bloccano tocchi concorrenti.
 - Gli ospiti possono consultare i dati generali; profilo, preferenze e future funzioni avanzate devono richiedere autenticazione.
 
 ## Decisioni consigliate
@@ -141,27 +141,17 @@ L’API key inserita nell’APK può essere estratta. Non deve quindi essere con
 
 Prima della pubblicazione, le credenziali Firebase Admin, le API key e le altre configurazioni sensibili devono essere spostate in variabili d’ambiente o in un secret manager.
 
-### 5. Valutare Navigation Compose
+### 5. Navigation Compose — implementata, test manuale pendente
 
-La Navigation Component è la libreria Android che gestisce destinazioni, back stack, deep link, passaggio dei parametri, ripristino dello stato e ViewModel associati alla navigazione.
+L'app usa Navigation Compose `2.7.7`, scelta compatibile con Kotlin 2.0.0 e Compose BOM 2024.05. Le versioni Navigation 2.8+ con route `@Serializable` richiederebbero un upgrade Compose/toolchain separato; non sono state introdotte per non mescolare due refactor ad alto rischio.
 
-Poiché il frontend è interamente Compose, la variante adatta è Navigation Compose, con:
+- `NavController` gestisce il back stack; `NavHost` dichiara Home, Calendario, Classifiche, News, Personal e tutte le schermate dettaglio.
+- `AppRoute` centralizza pattern, costruzione dei percorsi e validazione dei parametri. Identificativi semplici come round, sessione, GP, pilota e costruttore viaggiano nella route con URI encoding.
+- La bottom bar conserva il design corrente e usa `popUpTo`, `saveState`, `restoreState` e `launchSingleTop` per evitare duplicati e preservare le destinazioni top-level. Un tap sull’icona della sezione attiva chiude soltanto le sue sottoschermate e torna alla root; il Back di sistema resta un passo alla volta.
+- Back e up sono ora risolti dal back stack reale: Calendario → circuito → sessioni → risultati → analysis e Classifiche → dettaglio → head-to-head sono percorsi annidati verificabili.
+- Restano volutamente in memoria, e non sopravvivono a process death, i payload non serializzabili di Race Sessions e Team Update. Prima di deep link/process restoration dovranno essere ricostruiti da un ID o salvati in `SavedStateHandle`.
+- Deep link per notifiche/contenuti e test di navigazione strumentati restano pendenti.
 
-- `NavController` come coordinatore;
-- `NavHost` come contenitore delle schermate;
-- un navigation graph;
-- route per schermate principali e dettagli.
-
-La bottom bar attuale può essere mantenuta visivamente. Cambierebbe il meccanismo interno: le tab principali diventerebbero destinazioni top-level e i dettagli avrebbero una propria back stack.
-
-La soluzione attuale funziona, ma la conservazione dello stato è parziale:
-
-- `remember` conserva lo stato durante la composizione;
-- Room conserva i dati persistenti;
-- le variabili `selected*` conservano manualmente i parametri;
-- il back stack e il ripristino dopo ricreazione/process death sono gestiti solo in parte.
-
-La migrazione non è urgente per correggere l’app attuale, ma è consigliata prima di aggiungere notifiche, deep link, widget e molte nuove schermate.
 ### Strategia sorgenti dati — Jolpica e F1DB
 
 ~~~mermaid
@@ -169,7 +159,7 @@ flowchart LR
     J[Jolpica / Ergast stabile] --> J1[Calendario, orari, classifiche e risultati Race / Quali / Sprint]
     JA[Jolpica Alpha] --> JA1[Risultati finali FP1 / FP2 / FP3 / Sprint Qualifying]
     F[F1DB — release CC BY 4.0] --> F1[Backfill e verifica post-sessione: FP, risultati e dati storici ricchi]
-    J1 --> DB[(Database Formula Knowledge)]
+    J1 --> DB[(Database GPHub)]
     JA1 --> DB
     F1 --> DB
     DB --> A[API FastAPI e cache Room]
@@ -264,14 +254,16 @@ Prima della pubblicazione occorre valutare e testare in modo coordinato:
 
 Questa attività è rinviata: non modifica il contratto locale corrente e non è necessaria per le feature offline-first attuali.
 
-### Fase 6 — Navigation Compose
+### Fase 6 — Navigation Compose — implementata, validazione manuale pendente
 
-- Mantenere temporaneamente il design della bottom bar.
-- Estrarre uno AppScaffold e un NavHost.
-- Convertire prima le destinazioni top-level: Home, Calendario, Classifiche, Personal.
-- Convertire poi le schermate dettaglio.
-- Usare ViewModel e SavedStateHandle per parametri e stato di navigazione.
+- ~~Mantenere temporaneamente il design della bottom bar.~~ Completato.
+- ~~Introdurre NavHost e NavController.~~ Completato con Navigation Compose 2.7.7.
+- ~~Convertire le destinazioni top-level.~~ Completato: Home, Calendario, Classifiche, News e Personal.
+- ~~Convertire le schermate dettaglio.~~ Completato: circuito, sessioni, risultati, analysis, profili, confronti, meteo e update team.
+- Eseguire test manuali completi di back stack, tab top-level, orientamento, riapertura dell'app e contrasto/posizionamento delle system bar su dispositivo.
+- Ricostruire Race Sessions e Team Update da ID/repository o SavedStateHandle prima di supportare process death e deep link diretti.
 - Aggiungere deep link per notifiche e contenuti condivisibili.
+- Valutare in una fase toolchain dedicata l'upgrade a Navigation 2.8+ e Kotlin Serialization per route `@Serializable`.
 
 ### Fase 7 — PostgreSQL e deployment
 
@@ -329,7 +321,7 @@ cd C:\CodeProjects\formula-knowledge\formula-knowledge\backend
 ..\.venv\Scripts\python.exe -m pip show sqlalchemy
 ```
 
-### Aggiornamento di un singolo round
+### Riconciliazione mirata di un singolo round
 
 Prima fare un backup del database e fermare Uvicorn:
 
@@ -338,19 +330,19 @@ cd C:\CodeProjects\formula-knowledge\formula-knowledge\backend
 Copy-Item .\data\formula_knowledge.db .\data\formula_knowledge.db.backup-$(Get-Date -Format yyyyMMdd-HHmmss)
 ```
 
-Poi eseguire il round corretto:
+Per scrivere soltanto i risultati completi e differenti del round:
 
 ```powershell
-python -m scripts.update_post_race <ROUND>
+python -m scripts.sync_session_results --apply --round <ROUND>
 ```
 
 Esempio:
 
 ```powershell
-python -m scripts.update_post_race 6
+python -m scripts.sync_session_results --apply --round 6
 ```
 
-Lo script recupera gara, qualifiche e sprint da Jolpica/Ergast, applica le statistiche e aggiorna il log di rollback. Se lo stesso round era già stato processato, prima annulla i delta precedenti e poi applica i dati nuovi.
+Il comando non modifica statistiche, classifiche o news. Dopo una penalità o una correzione ufficiale, eseguire `sync_database` per ricostruire anche i dati derivati.
 
 ### Ricalcolo completo della stagione
 
@@ -579,8 +571,7 @@ formula-knowledge/
 │   │   ├── seed_season_stats.py
 │   │   ├── sync_database.py
 │   │   ├── sync_session_results.py
-│   │   ├── update_champs.py
-│   │   └── update_post_race.py
+│   │   └── update_champs.py
 │   ├── tests/
 │   │   └── data/
 │   ├── data/
@@ -764,3 +755,28 @@ formula-knowledge/
 - Verifiche: 18 test backend verdi (persistenza, idempotenza, payload assente, API HTTP e regressioni esistenti), `alembic current/check` a head e compilazione Android offline riuscita.
 - Pit-stop timeline resta rinviata: i dati Alpha disponibili indicano il tempo complessivo in pit lane, non la sola durata del cambio gomme.
 - Backlog Analysis v2, da affrontare dopo il refactor Navigation Compose: (1) Race Analysis con vista classifica lap-by-lap separata dal focus del singolo pilota; (2) dal pilota in Race Results, destinazione contestuale con passo gara, grafici, giro veloce e durata complessiva in pit lane; (3) revisione UX/struttura di Quali Analysis. Il tap non deve più portare alle statistiche stagionali quando il contesto è un risultato di sessione.
+- Navigation Compose: eliminato il coordinamento manuale basato su `AppScreen`/`AnimatedContent`; introdotti `NavHost`, back stack reale e `AppRoute`. Compilazione Kotlin offline riuscita; serve test manuale dei flussi su dispositivo prima di segnare la fase come completamente validata.
+## 2026-09-12 — Bottom bar e audit accesso
+
+- Navigation Compose: un tap sulla voce bottom bar della sezione corrente ora fa pop soltanto delle sottoschermate fino alla rispettiva root (es. Calendario o Classifiche); il Back mantiene la navigazione inversa di una sola schermata. Compilazione Kotlin offline riuscita; resta la verifica manuale su dispositivo.
+- Login Google corretto: `signInWithGoogle` usa un guard atomico single-flight e i tre pulsanti Google sono disabilitati durante l’autenticazione. Un solo `AuthViewModel` root è ora condiviso da dashboard e route Profile; `isLoggedIn` diventa true soltanto dopo la risposta valida di `/api/v1/auth/me`, evitando il profilo temporaneamente nullo e la schermata vuota al primo accesso. La route Profile ha inoltre un fallback che torna alla dashboard se il profilo fosse assente. Compilazione Kotlin offline riuscita; restano test manuali su installazione pulita, doppio tap, annullamento e login normale.
+- Audit Uvicorn: l’app Android dichiara solo endpoint `/api/v1/...`. I probe locali verso `/`, `/mcp`, WebSocket `/`, `/loginMsg.js` e `/cgi/get.cgi` non provengono dal contratto Retrofit; il server li ha rifiutati con 404/403.
+## 2026-09-12 — Rebranding GPHub
+
+- Nome visibile Android, splash/onboarding, titolo FastAPI e documentazione principale aggiornati da Formula Knowledge a `GPHub`.
+- Inserito il PNG originale `gphub_icon.png` come risorsa UI e creato un launcher adaptive `gphub_launcher`; i vecchi asset `ic_launcher` restano intatti per rollback.
+- Package Android, nomi del database, URL, API key e identificatori tecnici non sono stati rinominati, per non causare migrazioni o incompatibilità non necessarie.
+## 2026-09-12 — Audit backend post-refactor
+
+- Verificati compilazione Python, `pip check`, 18 test backend, import FastAPI, risposte di sicurezza (`403` senza API key e `401` senza token Firebase), Alembic `head`/`check`, `PRAGMA integrity_check` e foreign key check: tutti positivi.
+- I nuovi servizi di cache risultati e Session Analysis, i relativi script sync/backfill e le route API sono referenziati dal codice operativo e coperti dai test: non sono residui.
+- I risultati non hanno duplicati sulla chiave reale `(race_id, session_type, driver_id, session_participant_id)`. Il primo audit con `COALESCE` generava collisioni numeriche artificiali tra gli ID delle due tabelle.
+- Pulizia completata: rimossi `backend/app/ic_track_placeholder.xml`, `scripts/update_post_race.py`, `tests/simulate_and_test.py` e il modello/tabella `RoundProcessingLog` tramite migration `08fa42c32085`. Creato backup SQLite prima dell'upgrade; il sync canonico resta l'unico flusso operativo. `requirements.txt` è ancora un freeze dell’ambiente e va trasformato in manifest diretto/lockfile con test dedicato.
+- Migliorie sicurezza/robustezza da pianificare: API key ancora con valore di default nel codice; Firebase Admin da rendere configurabile/fail-closed in deployment; vincoli DB espliciti per impedire duplicati RaceResult anche in caso di script futuri difettosi; rendere esplicito il percorso e la policy del file `.env`, oggi dipendente dalla directory di avvio (un `.env` root con variabili non dichiarate può impedire l'import fuori da `backend`).
+## 2026-09-12 — Pulizia legacy e system bar edge-to-edge
+
+- Creato il backup `backend/data/formula_knowledge.before-legacy-cleanup-20260912-205545.db`, quindi applicata la migration Alembic `08fa42c32085`: elimina esclusivamente la tabella vuota `round_processing_logs`; il downgrade ricrea soltanto lo schema storico, senza dati.
+- Rimossi il modello `RoundProcessingLog`, `backend/scripts/update_post_race.py`, `backend/tests/simulate_and_test.py` e l'asset non referenziato `backend/app/ic_track_placeholder.xml`. Il flusso ordinario è ora `scripts.sync_database`; `sync_session_results --apply --round <ROUND>` resta disponibile per riconciliazioni mirate dei soli risultati.
+- Verifiche backend: compilazione Python, 18 test verdi, `alembic current/check`, `PRAGMA integrity_check`, `foreign_key_check` e assenza della tabella legacy tutti positivi.
+- Android: introdotto edge-to-edge con barre di sistema trasparenti, icone chiare, fade di contrasto e inset per NavHost/bottom bar; compilazione offline `:app:assembleDebug` riuscita. Resta test manuale su dispositivo per valutazione visiva su status e navigation bar.
+- Landing Google Sign-In: l'onboarding viene segnato come completato soltanto dopo selezione account, Firebase e risposta valida di /api/v1/auth/me; durante il popup resta visibile con loading, mentre annullamento/errore non fa uscire dalla landing.

@@ -80,7 +80,6 @@ fun PreferencesOnboardingScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(AppBackgroundGradientColor)
-            .systemBarsPadding()
     ) {
         // Tasto SKP (X)
         IconButton(
