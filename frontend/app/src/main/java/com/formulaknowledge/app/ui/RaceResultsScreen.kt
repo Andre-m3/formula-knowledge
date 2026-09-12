@@ -346,7 +346,7 @@ private fun SessionAnalysisAction(
         ),
     ) {
         Row(
-            modifier = Modifier.fillMaxSize().padding(horizontal = if (compact) 11.dp else 14.dp),
+            modifier = Modifier.fillMaxSize().padding(horizontal = if (compact) 9.dp else 14.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {

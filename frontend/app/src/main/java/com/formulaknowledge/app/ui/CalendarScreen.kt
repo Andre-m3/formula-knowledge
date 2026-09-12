@@ -1,5 +1,6 @@
 package com.formulaknowledge.app.ui
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -12,7 +13,15 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -26,6 +35,7 @@ import com.formulaknowledge.app.data.FormulaDatabase
 import com.formulaknowledge.app.data.FormulaRepository
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 private fun displayCalendarRaceName(name: String): String =
     name.uppercase()
@@ -109,7 +119,7 @@ fun CalendarRaceCard(race: CalendarResponse, onClick: () -> Unit) {
     val isCurrent = race.status == "current"
     val isFuture = race.status == "future"
     val isCancelled = race.cancelled == true
-    
+
     val borderColor = when {
         isCancelled -> Color.Red.copy(alpha = 0.3f)
         isCurrent -> Color(0xFF00FFCC).copy(alpha = 0.8f)
@@ -124,74 +134,144 @@ fun CalendarRaceCard(race: CalendarResponse, onClick: () -> Unit) {
         else -> Color.White.copy(alpha = 0.01f)
     }
 
-    Row(
+    val cardShape = RoundedCornerShape(18.dp)
+    val flagAlpha = when {
+        isCancelled -> 0.07f
+        isCurrent -> 0.20f
+        isPast -> 0.16f
+        else -> 0.11f
+    }
+
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(82.dp) // Fixed height for alignment
-            .background(backgroundColor, RoundedCornerShape(18.dp))
-            .border(0.5.dp, borderColor, RoundedCornerShape(18.dp))
+            .height(82.dp)
+            .clip(cardShape)
+            .background(backgroundColor)
+            .border(0.5.dp, borderColor, cardShape)
             .clickable(enabled = !isCancelled) { onClick() }
-            .padding(horizontal = 20.dp),
-        verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(modifier = Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.Center) {
-            Text(
-                text = if (isCancelled) "CANCELLED" else "ROUND ${race.round}",
-                color = when {
-                    isCancelled -> Color.Red.copy(alpha = 0.6f)
-                    isCurrent -> Color(0xFF00FFCC)
-                    else -> Color.White.copy(alpha = 0.4f)
-                },
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Black,
-                lineHeight = 13.sp
-            )
-            Text(
-                text = displayCalendarRaceName(race.name),
-                color = if (isCancelled) Color.White.copy(alpha = 0.2f) else if (isPast || isCurrent) Color.White else Color.White.copy(alpha = 0.3f),
-                fontSize = 19.sp, 
-                fontWeight = FontWeight.ExtraBold,
-                fontStyle = if (isCurrent) FontStyle.Italic else FontStyle.Normal,
-                lineHeight = 22.sp,
-                style = if (isCancelled) TextStyle(textDecoration = TextDecoration.LineThrough) else TextStyle.Default
-            )
-            Text(
-                text = "${race.city.uppercase().replace("MONTE CARLO", "MONTECARLO")}, ${race.country}",
-                color = if (isCancelled) Color.White.copy(alpha = 0.1f) else if (isFuture) Color.White.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.5f),
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Medium,
-                lineHeight = 14.sp
-            )
-        }
-        
-        if (!isCancelled) {
-            Column(horizontalAlignment = Alignment.End, modifier = Modifier.fillMaxHeight(), verticalArrangement = Arrangement.Center) {
-                val dateObj = try { LocalDate.parse(race.date) } catch(e: Exception) { null }
-                if (dateObj != null) {
-                    Text(
-                        text = dateObj.dayOfMonth.toString(),
-                        color = if (isPast || isCurrent) Color.White else Color.White.copy(alpha = 0.2f),
-                        fontSize = 24.sp,
-                        fontWeight = FontWeight.Black,
-                        lineHeight = 26.sp
-                    )
-                    Text(
-                        text = dateObj.format(DateTimeFormatter.ofPattern("MMM")).uppercase(),
-                        color = if (isPast || isCurrent) Color(0xFF00FFCC) else Color.White.copy(alpha = 0.2f),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Black,
-                        lineHeight = 13.sp
-                    )
-                } else {
-                    Text(
-                        text = "--",
-                        color = Color.White.copy(alpha = 0.2f),
-                        fontSize = 24.sp,
-                        fontWeight = FontWeight.Black,
-                        lineHeight = 26.sp
-                    )
+        CalendarFlagWatermark(
+            country = race.country,
+            imageAlpha = flagAlpha,
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .fillMaxHeight()
+                .width(118.dp),
+        )
+
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 20.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight(),
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Text(
+                    text = if (isCancelled) "CANCELLED" else "ROUND ${race.round}",
+                    color = when {
+                        isCancelled -> Color.Red.copy(alpha = 0.6f)
+                        isCurrent -> Color(0xFF00FFCC)
+                        else -> Color.White.copy(alpha = 0.4f)
+                    },
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Black,
+                    lineHeight = 13.sp,
+                )
+                Text(
+                    text = displayCalendarRaceName(race.name),
+                    color = if (isCancelled) Color.White.copy(alpha = 0.2f) else if (isPast || isCurrent) Color.White else Color.White.copy(alpha = 0.3f),
+                    fontSize = 19.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontStyle = if (isCurrent) FontStyle.Italic else FontStyle.Normal,
+                    lineHeight = 22.sp,
+                    style = if (isCancelled) TextStyle(textDecoration = TextDecoration.LineThrough) else TextStyle.Default,
+                )
+                Text(
+                    text = "${race.city.uppercase().replace("MONTE CARLO", "MONTECARLO")}, ${race.country}",
+                    color = if (isCancelled) Color.White.copy(alpha = 0.1f) else if (isFuture) Color.White.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.5f),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                    lineHeight = 14.sp,
+                )
+            }
+
+            if (!isCancelled) {
+                Column(
+                    horizontalAlignment = Alignment.End,
+                    modifier = Modifier.fillMaxHeight(),
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    val dateObj = try { LocalDate.parse(race.date) } catch (_: Exception) { null }
+                    if (dateObj != null) {
+                        Text(
+                            text = dateObj.dayOfMonth.toString(),
+                            color = if (isPast || isCurrent) Color.White else Color.White.copy(alpha = 0.2f),
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.Black,
+                            lineHeight = 26.sp,
+                        )
+                        Text(
+                            text = dateObj.format(DateTimeFormatter.ofPattern("MMM")).uppercase(),
+                            color = if (isPast || isCurrent) Color(0xFF00FFCC) else Color.White.copy(alpha = 0.2f),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Black,
+                            lineHeight = 13.sp,
+                        )
+                    } else {
+                        Text(
+                            text = "--",
+                            color = Color.White.copy(alpha = 0.2f),
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.Black,
+                            lineHeight = 26.sp,
+                        )
+                    }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun CalendarFlagWatermark(country: String, imageAlpha: Float, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val resourceName = remember(country) {
+        "flag_${country.lowercase(Locale.ROOT).replace(" ", "_")}"
+    }
+    val resourceId = remember(resourceName) {
+        context.resources.getIdentifier(resourceName, "drawable", context.packageName)
+    }
+
+    if (resourceId == 0) return
+
+    Box(
+        modifier = modifier
+            .graphicsLayer { alpha = 0.99f }
+            .drawWithContent {
+                drawContent()
+                drawRect(
+                    brush = Brush.horizontalGradient(
+                        colors = listOf(Color.Transparent, Color.Black),
+                        startX = 0f,
+                        endX = size.width * 0.72f,
+                    ),
+                    blendMode = BlendMode.DstIn,
+                )
+            },
+    ) {
+        Image(
+            painter = painterResource(resourceId),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .fillMaxSize()
+                .alpha(imageAlpha),
+        )
     }
 }
